@@ -1,16 +1,68 @@
 /**
  * RFID Solutions — Scroll Engine & Interactions
- * Handles scroll-driven animations, menu, progress dots, and phase reveals
+ * Handles scroll-driven animations, menu, progress dots, and phase reveals.
+ *
+ * Faithful TypeScript port of the original main.js. Behavior is identical;
+ * the IIFE is now an init function that returns a cleanup callback so React
+ * can tear everything down on unmount.
  */
 
-(function () {
+interface SectionRef {
+  id: string;
+  el: HTMLElement | null;
+}
+
+interface ScrollState {
+  menuOpen: boolean;
+  currentPhase: number;
+  scrollY: number;
+  windowHeight: number;
+  sections: SectionRef[];
+  initialized: boolean;
+}
+
+export function initScrollEngine(): () => void {
   'use strict';
+
+  // Tracks every listener so we can remove them all on cleanup.
+  const cleanups: Array<() => void> = [];
+  function on<K extends keyof DocumentEventMap>(
+    target: Document,
+    type: K,
+    handler: (ev: DocumentEventMap[K]) => void,
+    opts?: AddEventListenerOptions,
+  ): void;
+  function on<K extends keyof WindowEventMap>(
+    target: Window,
+    type: K,
+    handler: (ev: WindowEventMap[K]) => void,
+    opts?: AddEventListenerOptions,
+  ): void;
+  function on(
+    target: EventTarget,
+    type: string,
+    handler: EventListenerOrEventListenerObject,
+    opts?: AddEventListenerOptions,
+  ): void {
+    target.addEventListener(type, handler, opts);
+    cleanups.push(() => target.removeEventListener(type, handler, opts));
+  }
+
+  function onEl(
+    el: Element | null,
+    type: string,
+    handler: EventListenerOrEventListenerObject,
+  ): void {
+    if (!el) return;
+    el.addEventListener(type, handler);
+    cleanups.push(() => el.removeEventListener(type, handler));
+  }
 
   // ============================================
   // INITIALIZATION
   // ============================================
-  
-  const state = {
+
+  const state: ScrollState = {
     menuOpen: false,
     currentPhase: 0,
     scrollY: 0,
@@ -18,9 +70,6 @@
     sections: [],
     initialized: false,
   };
-
-  // Wait for DOM
-  document.addEventListener('DOMContentLoaded', init);
 
   function init() {
     state.windowHeight = window.innerHeight;
@@ -70,50 +119,51 @@
 
       if (state.menuOpen) {
         // Calculate expanded size
-        const contentRect = menuContent.getBoundingClientRect();
+        const contentRect = menuContent!.getBoundingClientRect();
         const totalHeight = contentRect.height + 10;
         const totalWidth = Math.max(contentRect.width + 10, 320);
-        menuBg.style.width = totalWidth + 'px';
-        menuBg.style.height = totalHeight + 'px';
+        menuBg!.style.width = totalWidth + 'px';
+        menuBg!.style.height = totalHeight + 'px';
       } else {
-        menuBg.style.width = '';
-        menuBg.style.height = '';
+        menuBg!.style.width = '';
+        menuBg!.style.height = '';
       }
     };
 
-    hamburger.addEventListener('click', toggleMenu);
-    menuLabel.addEventListener('click', toggleMenu);
+    onEl(hamburger, 'click', toggleMenu);
+    onEl(menuLabel, 'click', toggleMenu);
 
     // Close menu on link click
     const menuLinks = document.querySelectorAll('.nav__menu-link');
-    menuLinks.forEach(link => {
-      link.addEventListener('click', () => {
+    menuLinks.forEach((link) => {
+      onEl(link, 'click', () => {
         if (state.menuOpen) {
           state.menuOpen = false;
           document.body.classList.remove('menu-open');
-          menuBg.style.width = '';
-          menuBg.style.height = '';
+          menuBg!.style.width = '';
+          menuBg!.style.height = '';
         }
       });
     });
 
     // Close on Escape
-    document.addEventListener('keydown', (e) => {
+    on(document, 'keydown', (e) => {
       if (e.key === 'Escape' && state.menuOpen) {
         state.menuOpen = false;
         document.body.classList.remove('menu-open');
-        menuBg.style.width = '';
-        menuBg.style.height = '';
+        menuBg!.style.width = '';
+        menuBg!.style.height = '';
       }
     });
 
     // Close on click outside
-    document.addEventListener('click', (e) => {
-      if (state.menuOpen && !e.target.closest('.nav__menu-btn')) {
+    on(document, 'click', (e) => {
+      const target = e.target as HTMLElement;
+      if (state.menuOpen && !target.closest('.nav__menu-btn')) {
         state.menuOpen = false;
         document.body.classList.remove('menu-open');
-        menuBg.style.width = '';
-        menuBg.style.height = '';
+        menuBg!.style.width = '';
+        menuBg!.style.height = '';
       }
     });
   }
@@ -122,59 +172,68 @@
   // INTERSECTION OBSERVERS
   // ============================================
 
+  const observers: IntersectionObserver[] = [];
+
   function setupIntersectionObservers() {
     // Phase title animations
-    const phaseTitleObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        const title = entry.target;
-        if (entry.isIntersecting) {
-          // Add anim class first if not present
-          if (!title.classList.contains('anim') && !title.classList.contains('in')) {
-            title.classList.add('anim');
+    const phaseTitleObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const title = entry.target;
+          if (entry.isIntersecting) {
+            // Add anim class first if not present
+            if (!title.classList.contains('anim') && !title.classList.contains('in')) {
+              title.classList.add('anim');
+            }
+            // Trigger entrance
+            requestAnimationFrame(() => {
+              title.classList.remove('anim');
+              title.classList.remove('out');
+              title.classList.add('in');
+              // Settle after animation completes
+              setTimeout(() => {
+                title.classList.add('settled');
+              }, 1400);
+            });
+          } else {
+            // Only add out if it was previously in
+            if (title.classList.contains('in') || title.classList.contains('settled')) {
+              title.classList.remove('in');
+              title.classList.remove('settled');
+              title.classList.add('out');
+            }
           }
-          // Trigger entrance
-          requestAnimationFrame(() => {
-            title.classList.remove('anim');
-            title.classList.remove('out');
-            title.classList.add('in');
-            // Settle after animation completes
-            setTimeout(() => {
-              title.classList.add('settled');
-            }, 1400);
-          });
-        } else {
-          // Only add out if it was previously in
-          if (title.classList.contains('in') || title.classList.contains('settled')) {
-            title.classList.remove('in');
-            title.classList.remove('settled');
-            title.classList.add('out');
-          }
-        }
-      });
-    }, {
-      threshold: 0.3,
-      rootMargin: '-10% 0px -10% 0px'
-    });
+        });
+      },
+      {
+        threshold: 0.3,
+        rootMargin: '-10% 0px -10% 0px',
+      },
+    );
 
-    document.querySelectorAll('.phase-title').forEach(el => {
+    document.querySelectorAll('.phase-title').forEach((el) => {
       el.classList.add('anim'); // Start hidden
       phaseTitleObserver.observe(el);
     });
+    observers.push(phaseTitleObserver);
 
     // General section animations
-    const sectionObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-        }
-      });
-    }, {
-      threshold: 0.15,
-      rootMargin: '0px 0px -5% 0px'
-    });
+    const sectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+          }
+        });
+      },
+      {
+        threshold: 0.15,
+        rootMargin: '0px 0px -5% 0px',
+      },
+    );
 
     // Observe phases
-    document.querySelectorAll('.phase').forEach(el => sectionObserver.observe(el));
+    document.querySelectorAll('.phase').forEach((el) => sectionObserver.observe(el));
 
     // Observe services section
     const services = document.querySelector('.services');
@@ -183,33 +242,42 @@
     // Observe specs section
     const specs = document.querySelector('.specs');
     if (specs) sectionObserver.observe(specs);
+    observers.push(sectionObserver);
 
     // Video content observer
-    const videoContentObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-        }
-      });
-    }, {
-      threshold: 0.3,
-    });
+    const videoContentObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+          }
+        });
+      },
+      {
+        threshold: 0.3,
+      },
+    );
 
     const videoContent = document.getElementById('video-content');
     if (videoContent) videoContentObserver.observe(videoContent);
+    observers.push(videoContentObserver);
 
     // Fade-in elements
-    const fadeObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-        }
-      });
-    }, {
-      threshold: 0.2,
-    });
+    const fadeObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+          }
+        });
+      },
+      {
+        threshold: 0.2,
+      },
+    );
 
-    document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+    document.querySelectorAll('.fade-in').forEach((el) => fadeObserver.observe(el));
+    observers.push(fadeObserver);
   }
 
   // ============================================
@@ -219,23 +287,29 @@
   function setupScrollListener() {
     let ticking = false;
 
-    window.addEventListener('scroll', () => {
-      state.scrollY = window.scrollY;
+    on(
+      window,
+      'scroll',
+      () => {
+        state.scrollY = window.scrollY;
 
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          onScroll();
-          ticking = false;
-        });
-        ticking = true;
-      }
-    }, { passive: true });
+        if (!ticking) {
+          requestAnimationFrame(() => {
+            onScroll();
+            ticking = false;
+          });
+          ticking = true;
+        }
+      },
+      { passive: true },
+    );
   }
 
   function onScroll() {
+    // Progress-dot active state and the nav phase chip are owned by the
+    // cinematic overlay (driven by journey progress), so the scroll engine only
+    // handles the light/dark nav styling here.
     updateNavStyle();
-    updateProgressDots();
-    updatePhaseIndicator();
   }
 
   // ============================================
@@ -253,7 +327,7 @@
     const darkSections = document.querySelectorAll('.phase--dark, .phase--gradient, .specs, .cta-section');
     let overDark = false;
 
-    darkSections.forEach(section => {
+    darkSections.forEach((section) => {
       const rect = section.getBoundingClientRect();
       if (rect.top <= 80 && rect.bottom >= 80) {
         overDark = true;
@@ -286,7 +360,7 @@
 
       // Update dot colors based on background
       const dots = progress.querySelectorAll('.progress__dot');
-      dots.forEach(dot => {
+      dots.forEach((dot) => {
         if (overDark) {
           dot.classList.remove('progress__dot--dark');
         } else {
@@ -301,94 +375,14 @@
   // ============================================
 
   function setupProgressDots() {
-    const dots = document.querySelectorAll('.progress__dot');
-    dots.forEach(dot => {
-      dot.addEventListener('click', () => {
-        const index = parseInt(dot.dataset.index);
+    const dots = document.querySelectorAll<HTMLElement>('.progress__dot');
+    dots.forEach((dot) => {
+      onEl(dot, 'click', () => {
+        const index = parseInt(dot.dataset.index || '0');
         if (state.sections[index] && state.sections[index].el) {
-          state.sections[index].el.scrollIntoView({ behavior: 'smooth' });
+          state.sections[index].el!.scrollIntoView({ behavior: 'smooth' });
         }
       });
-    });
-  }
-
-  function updateProgressDots() {
-    const dots = document.querySelectorAll('.progress__dot');
-    if (!dots.length) return;
-
-    let activeIndex = 0;
-    const scrollCenter = state.scrollY + state.windowHeight * 0.4;
-
-    state.sections.forEach((section, i) => {
-      if (section.el) {
-        const top = section.el.offsetTop;
-        if (scrollCenter >= top) {
-          activeIndex = i;
-        }
-      }
-    });
-
-    dots.forEach((dot, i) => {
-      dot.classList.toggle('active', i === activeIndex);
-    });
-  }
-
-  // ============================================
-  // PHASE INDICATOR (Nav)
-  // ============================================
-
-  function updatePhaseIndicator() {
-    const navPhase = document.getElementById('nav-phase');
-    const navPhaseDot = document.getElementById('nav-phase-dot');
-    const navPhaseLabel = document.getElementById('nav-phase-label');
-
-    if (!navPhase) return;
-
-    const phases = [
-      { id: 'phase-1', num: 1, label: 'Site Assessment' },
-      { id: 'phase-2', num: 2, label: 'System Architecture' },
-      { id: 'phase-3', num: 3, label: 'Integration' },
-      { id: 'phase-4', num: 4, label: 'Go-Live' },
-    ];
-
-    let currentPhase = null;
-    const scrollCenter = state.scrollY + state.windowHeight * 0.4;
-
-    phases.forEach(phase => {
-      const el = document.getElementById(phase.id);
-      if (el) {
-        const top = el.offsetTop;
-        const bottom = top + el.offsetHeight;
-        if (scrollCenter >= top && scrollCenter < bottom) {
-          currentPhase = phase;
-        }
-      }
-    });
-
-    if (currentPhase) {
-      navPhase.classList.add('visible');
-      navPhaseDot.textContent = currentPhase.num;
-      navPhaseLabel.textContent = currentPhase.label;
-    } else {
-      navPhase.classList.remove('visible');
-    }
-
-    // Update active menu link
-    const menuLinks = document.querySelectorAll('.nav__menu-link');
-    let activeTarget = 'hero';
-
-    state.sections.forEach(section => {
-      if (section.el) {
-        const top = section.el.offsetTop;
-        if (scrollCenter >= top) {
-          activeTarget = section.id;
-        }
-      }
-    });
-
-    menuLinks.forEach(link => {
-      const target = link.dataset.target;
-      link.classList.toggle('active', target === activeTarget);
     });
   }
 
@@ -400,7 +394,7 @@
     // Logo click -> scroll to top
     const logo = document.getElementById('nav-logo');
     if (logo) {
-      logo.addEventListener('click', () => {
+      onEl(logo, 'click', () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     }
@@ -408,7 +402,7 @@
     // Hero CTA
     const heroCta = document.getElementById('hero-cta');
     if (heroCta) {
-      heroCta.addEventListener('click', () => {
+      onEl(heroCta, 'click', () => {
         const contact = document.getElementById('contact');
         if (contact) contact.scrollIntoView({ behavior: 'smooth' });
       });
@@ -417,7 +411,7 @@
     // Explore button
     const heroExplore = document.getElementById('hero-explore');
     if (heroExplore) {
-      heroExplore.addEventListener('click', () => {
+      onEl(heroExplore, 'click', () => {
         const immersiveSection = document.getElementById('immersive');
         if (immersiveSection) immersiveSection.scrollIntoView({ behavior: 'smooth' });
       });
@@ -426,7 +420,7 @@
     // Menu CTA button
     const menuCta = document.getElementById('menu-cta-btn');
     if (menuCta) {
-      menuCta.addEventListener('click', () => {
+      onEl(menuCta, 'click', () => {
         const contact = document.getElementById('contact');
         if (contact) {
           // Close menu first
@@ -447,10 +441,10 @@
 
   function setupSmoothScroll() {
     // Handle all anchor links
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-      anchor.addEventListener('click', (e) => {
+    document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((anchor) => {
+      onEl(anchor, 'click', (e) => {
         e.preventDefault();
-        const targetId = anchor.getAttribute('href').substring(1);
+        const targetId = anchor.getAttribute('href')!.substring(1);
         const target = document.getElementById(targetId);
         if (target) {
           target.scrollIntoView({ behavior: 'smooth' });
@@ -463,8 +457,25 @@
   // WINDOW RESIZE
   // ============================================
 
-  window.addEventListener('resize', () => {
-    state.windowHeight = window.innerHeight;
-  }, { passive: true });
+  on(
+    window,
+    'resize',
+    () => {
+      state.windowHeight = window.innerHeight;
+    },
+    { passive: true },
+  );
 
-})();
+  // The original waited for DOMContentLoaded; here React guarantees the DOM
+  // is mounted before this runs, so we initialize immediately.
+  init();
+
+  // ============================================
+  // CLEANUP
+  // ============================================
+
+  return () => {
+    cleanups.forEach((fn) => fn());
+    observers.forEach((o) => o.disconnect());
+  };
+}

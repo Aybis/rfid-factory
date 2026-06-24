@@ -1101,7 +1101,7 @@ body.loading { opacity: 0; }
 .immersive {
   position: relative;
   z-index: 4;
-  height: 1100vh; /* 10 steps × ~110vh each */
+  height: 720vh; /* 6 cinematic stages × ~120vh each */
 }
 
 .immersive__sticky {

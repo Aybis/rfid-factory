@@ -28,7 +28,7 @@ export default function Immersive() {
             <span className="immersive__step-num" id="step-label">STEP 01</span>
           </div>
           <p className="immersive__step-text" id="step-text">
-            Map your facility layout and identify RFID coverage zones for optimal tag visibility.
+            Truk tiba di loading dock. Setiap palet melewati RFID Gate dan otomatis terbaca, lalu dicocokkan dengan Purchase Order.
           </p>
         </div>
 

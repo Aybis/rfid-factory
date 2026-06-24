@@ -10,21 +10,21 @@ import CtaSection from './components/CtaSection';
 import Contact from './components/Contact';
 import Footer from './components/Footer';
 import { initScrollEngine } from './lib/scrollEngine';
+import { initOverlay } from './lib/overlay';
 import { initScene3D } from './lib/scene3d';
-import { initPins } from './lib/pins';
 
 export default function App() {
   useEffect(() => {
-    // The DOM rendered by React is now mounted, so the imperative behavior
-    // modules can safely query the same ids/classes the original scripts used.
-    // Order matters: scene3d must register window.rfidScene before pins runs.
+    // The DOM rendered by React is now mounted, so the imperative engines can
+    // safely query the same ids/classes. Order matters: the overlay must be
+    // ready before the scene's animation loop starts driving it.
     const disposeScroll = initScrollEngine();
+    const disposeOverlay = initOverlay();
     const disposeScene = initScene3D();
-    const disposePins = initPins();
 
     return () => {
-      disposePins();
       disposeScene();
+      disposeOverlay();
       disposeScroll();
     };
   }, []);

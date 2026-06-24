@@ -1,3 +1,10 @@
-node_modules/
-dist/
-.env
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+npm-debug.log*
+build_verify
+vite.config.ts.timestamp-*
+tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo

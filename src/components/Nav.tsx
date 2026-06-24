@@ -16,7 +16,7 @@ export default function Nav() {
       <div className="nav__right">
         <div className="nav__phase" id="nav-phase">
           <div className="nav__phase-dot" id="nav-phase-dot">1</div>
-          <span className="nav__phase-label" id="nav-phase-label">Site Assessment</span>
+          <span className="nav__phase-label" id="nav-phase-label">Inbound</span>
         </div>
 
         <div className="nav__menu-btn" id="menu-btn">
@@ -33,27 +33,24 @@ export default function Nav() {
           <div className="nav__menu-content" id="menu-content">
             <div className="nav__menu-links">
               <div className="nav__menu-link active" data-target="hero">
-                <a href="#hero">Overview</a>
+                <a href="#hero">Beranda</a>
               </div>
-              <div className="nav__menu-link" data-target="phase-1">
-                <a href="#phase-1">Site Assessment</a>
-              </div>
-              <div className="nav__menu-link" data-target="phase-2">
-                <a href="#phase-2">System Architecture</a>
-              </div>
-              <div className="nav__menu-link" data-target="phase-3">
-                <a href="#phase-3">Integration</a>
-              </div>
-              <div className="nav__menu-link" data-target="phase-4">
-                <a href="#phase-4">Go-Live</a>
+              <div className="nav__menu-link" data-target="immersive">
+                <a href="#immersive">Alur Perjalanan</a>
               </div>
               <div className="nav__menu-link" data-target="services">
-                <a href="#services">Industries</a>
+                <a href="#services">Industri</a>
+              </div>
+              <div className="nav__menu-link" data-target="specs">
+                <a href="#specs">Spesifikasi</a>
+              </div>
+              <div className="nav__menu-link" data-target="contact">
+                <a href="#contact">Kontak</a>
               </div>
             </div>
             <div className="nav__menu-cta">
               <button className="nav__menu-cta-btn" id="menu-cta-btn">
-                <span>Get a Consultation</span>
+                <span>Minta Konsultasi</span>
               </button>
             </div>
           </div>

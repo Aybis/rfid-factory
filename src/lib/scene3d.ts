@@ -1,0 +1,983 @@
+/**
+ * RFID Solutions — Cinematic Warehouse Scene
+ *
+ * A persistent Three.js scene that follows a hero pallet through the 6-stage
+ * RFID journey (Inbound -> Storage -> Picking -> Outbound -> Transit ->
+ * Distributor Receiving). The camera tracks the pallet like a film dolly; scroll
+ * drives journey progress; the overlay module projects pins onto 3D features.
+ *
+ * Built on the original facility scene, enhanced with: a hero pallet, a moving
+ * shipment truck, a smart forklift, a distributor receiving area, and a
+ * journey-driven follow camera.
+ */
+
+import * as THREE from 'three';
+import { STAGES, WAYPOINTS, STAGE_COUNT, heroAt, camOffsetAt, stageIndexAt } from './journey';
+import { setStage, projectPins } from './overlay';
+
+// Shared scroll-driven journey progress in [0,1].
+let journeyProgress = 0;
+
+export function initScene3D(): () => void {
+  'use strict';
+
+  const container = document.getElementById('scene-3d-global');
+  if (!container) return () => {};
+
+  // ============================================
+  // SCENE SETUP
+  // ============================================
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d1b2a);
+  scene.fog = new THREE.FogExp2(0x0d1b2a, 0.006);
+  const fog = scene.fog as THREE.FogExp2;
+
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 600);
+  camera.position.set(24, 11, 0);
+  camera.lookAt(8, 2, -16);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.85;
+  container.appendChild(renderer.domElement);
+
+  // ============================================
+  // INTERACTIVE CAMERA (drag-to-orbit, Ctrl+scroll-to-zoom, dbl-click reset)
+  // ============================================
+
+  let orbitYaw = 0;    // accumulated horizontal drag (radians)
+  let orbitPitch = 0;  // accumulated vertical drag (radians)
+  let orbitZoom = 1.0; // zoom multiplier (1 = scroll-driven default)
+  let dragActive = false;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let pinchLastDist = 0;
+  const ORBIT_SENS = 0.006;
+  const ZOOM_SENS = 0.0012;
+
+  const onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) return;
+    dragActive = true;
+    dragLastX = e.clientX;
+    dragLastY = e.clientY;
+  };
+  const onMouseMove = (e: MouseEvent) => {
+    if (!dragActive) return;
+    orbitYaw -= (e.clientX - dragLastX) * ORBIT_SENS;
+    orbitPitch -= (e.clientY - dragLastY) * ORBIT_SENS;
+    orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
+    dragLastX = e.clientX;
+    dragLastY = e.clientY;
+  };
+  const onMouseUp = () => { dragActive = false; };
+
+  // Ctrl/Cmd + scroll → zoom
+  const onWheel = (e: WheelEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    orbitZoom *= 1 + e.deltaY * ZOOM_SENS;
+    orbitZoom = Math.max(0.25, Math.min(4.0, orbitZoom));
+  };
+
+  // Double-click → reset orbit
+  const onDblClick = () => { orbitYaw = 0; orbitPitch = 0; orbitZoom = 1.0; };
+
+  // Touch: single finger = orbit, two-finger pinch = zoom
+  const onTouchStart = (e: TouchEvent) => {
+    if (e.touches.length === 1) {
+      dragActive = true;
+      dragLastX = e.touches[0].clientX;
+      dragLastY = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
+      dragActive = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchLastDist = Math.hypot(dx, dy);
+    }
+  };
+  const onTouchMove = (e: TouchEvent) => {
+    if (e.touches.length === 2 && pinchLastDist > 0) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d = Math.hypot(dx, dy);
+      orbitZoom *= pinchLastDist / d;
+      orbitZoom = Math.max(0.25, Math.min(4.0, orbitZoom));
+      pinchLastDist = d;
+      e.preventDefault();
+    } else if (e.touches.length === 1 && dragActive) {
+      orbitYaw -= (e.touches[0].clientX - dragLastX) * ORBIT_SENS;
+      orbitPitch -= (e.touches[0].clientY - dragLastY) * ORBIT_SENS;
+      orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
+      dragLastX = e.touches[0].clientX;
+      dragLastY = e.touches[0].clientY;
+      e.preventDefault();
+    }
+  };
+  const onTouchEnd = () => { dragActive = false; pinchLastDist = 0; };
+
+  const domEl = renderer.domElement;
+  domEl.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+  domEl.addEventListener('wheel', onWheel, { passive: false });
+  domEl.addEventListener('dblclick', onDblClick);
+  domEl.addEventListener('touchstart', onTouchStart, { passive: true });
+  domEl.addEventListener('touchmove', onTouchMove, { passive: false });
+  domEl.addEventListener('touchend', onTouchEnd);
+
+  // Change cursor while dragging
+  domEl.style.cursor = 'grab';
+  domEl.addEventListener('mousedown', () => { domEl.style.cursor = 'grabbing'; });
+  window.addEventListener('mouseup', () => { domEl.style.cursor = 'grab'; });
+
+  // ============================================
+  // LIGHTING
+  // ============================================
+
+  const ambientLight = new THREE.AmbientLight(0x4488aa, 0.5);
+  scene.add(ambientLight);
+
+  const sunLight = new THREE.DirectionalLight(0xffeedd, 1.0);
+  sunLight.position.set(30, 50, 20);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 2048;
+  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.near = 0.5;
+  sunLight.shadow.camera.far = 200;
+  sunLight.shadow.camera.left = -90;
+  sunLight.shadow.camera.right = 90;
+  sunLight.shadow.camera.top = 60;
+  sunLight.shadow.camera.bottom = -90;
+  sunLight.shadow.bias = -0.001;
+  scene.add(sunLight);
+
+  const fillLight = new THREE.DirectionalLight(0x00d4ff, 0.25);
+  fillLight.position.set(-20, 20, -10);
+  scene.add(fillLight);
+
+  const rimLight = new THREE.DirectionalLight(0x00e5a0, 0.15);
+  rimLight.position.set(-10, 10, 30);
+  scene.add(rimLight);
+
+  const rfidLight1 = new THREE.PointLight(0x00d4ff, 1, 15);
+  rfidLight1.position.set(8, 4, -8);
+  scene.add(rfidLight1);
+
+  const rfidLight2 = new THREE.PointLight(0x00e5a0, 0.8, 12);
+  rfidLight2.position.set(-8, 3, 5);
+  scene.add(rfidLight2);
+
+  const serverGlow = new THREE.PointLight(0x00ff88, 0.6, 10);
+  serverGlow.position.set(-20, 4, -5);
+  scene.add(serverGlow);
+
+  // Interior warehouse ceiling lights — illuminate racks and floor from above
+  const interiorLight1 = new THREE.PointLight(0xfff5e0, 1.5, 25);
+  interiorLight1.position.set(8, 7, 2);
+  scene.add(interiorLight1);
+  const interiorLight2 = new THREE.PointLight(0xfff5e0, 1.2, 20);
+  interiorLight2.position.set(14, 7, 5);
+  scene.add(interiorLight2);
+  const interiorLight3 = new THREE.PointLight(0xfff5e0, 1.2, 20);
+  interiorLight3.position.set(4, 7, -3);
+  scene.add(interiorLight3);
+
+  // ============================================
+  // MATERIALS
+  // ============================================
+
+  const mat = {
+    ground: new THREE.MeshStandardMaterial({ color: 0x1a3a2a, roughness: 0.9 }),
+    groundPad: new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.7, metalness: 0.2 }),
+    road: new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.85 }),
+    roadMark: new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5 }),
+    building: new THREE.MeshStandardMaterial({ color: 0xbbc8d4, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }),
+    buildingDark: new THREE.MeshStandardMaterial({ color: 0x667788, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide }),
+    roof: new THREE.MeshStandardMaterial({ color: 0x556677, roughness: 0.6, metalness: 0.3, transparent: true, opacity: 0.25, side: THREE.FrontSide }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x889999, roughness: 0.3, metalness: 0.8 }),
+    metalDark: new THREE.MeshStandardMaterial({ color: 0x445566, roughness: 0.4, metalness: 0.7 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x88ccee, roughness: 0.1, metalness: 0.9, transparent: true, opacity: 0.5 }),
+    rfidCyan: new THREE.MeshStandardMaterial({ color: 0x00d4ff, roughness: 0.3, metalness: 0.5, emissive: 0x00d4ff, emissiveIntensity: 0.4 }),
+    rfidGreen: new THREE.MeshStandardMaterial({ color: 0x00e5a0, roughness: 0.3, metalness: 0.5, emissive: 0x00e5a0, emissiveIntensity: 0.4 }),
+    door: new THREE.MeshStandardMaterial({ color: 0x00aacc, roughness: 0.4, metalness: 0.5, emissive: 0x004455, emissiveIntensity: 0.15 }),
+    crate: new THREE.MeshStandardMaterial({ color: 0xccaa77, roughness: 0.8 }),
+    crateTag: new THREE.MeshStandardMaterial({ color: 0xeeeedd, roughness: 0.5 }),
+    pallet: new THREE.MeshStandardMaterial({ color: 0x9c7a4d, roughness: 0.85 }),
+    heroCrate: new THREE.MeshStandardMaterial({ color: 0xd9b676, roughness: 0.7 }),
+    antenna: new THREE.MeshStandardMaterial({ color: 0xaabbcc, roughness: 0.4, metalness: 0.6 }),
+    server: new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.3, metalness: 0.7 }),
+    srvLed: new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.2, emissive: 0x00ff88, emissiveIntensity: 0.5 }),
+    conveyor: new THREE.MeshStandardMaterial({ color: 0x556666, roughness: 0.6, metalness: 0.5 }),
+    belt: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 }),
+    truck: new THREE.MeshStandardMaterial({ color: 0xccddee, roughness: 0.5, metalness: 0.3 }),
+    truckBody: new THREE.MeshStandardMaterial({ color: 0x3a5a7a, roughness: 0.6 }),
+    tree: new THREE.MeshStandardMaterial({ color: 0x2d6b3a, roughness: 0.9 }),
+    treeDark: new THREE.MeshStandardMaterial({ color: 0x1d4a2a, roughness: 0.9 }),
+    trunk: new THREE.MeshStandardMaterial({ color: 0x5a3d2b, roughness: 0.9 }),
+    fence: new THREE.MeshStandardMaterial({ color: 0x667777, roughness: 0.5, metalness: 0.6 }),
+    solar: new THREE.MeshStandardMaterial({ color: 0x223355, roughness: 0.3, metalness: 0.6 }),
+    forklift: new THREE.MeshStandardMaterial({ color: 0xf5a623, roughness: 0.5, metalness: 0.3 }),
+    scanLine: new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }),
+    workerBody: new THREE.MeshStandardMaterial({ color: 0x2255aa, roughness: 0.8 }),
+    workerSkin: new THREE.MeshStandardMaterial({ color: 0xf5c5a0, roughness: 0.9 }),
+    workerVest: new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.7, emissive: 0xff4400, emissiveIntensity: 0.12 }),
+    workerHelmet: new THREE.MeshStandardMaterial({ color: 0xf5a623, roughness: 0.5, metalness: 0.3, emissive: 0xf5a623, emissiveIntensity: 0.1 }),
+    workerHelmetHub: new THREE.MeshStandardMaterial({ color: 0x33cc55, roughness: 0.5, metalness: 0.3 }),
+    workerPants: new THREE.MeshStandardMaterial({ color: 0x334466, roughness: 0.85 }),
+  };
+
+  // ============================================
+  // HELPERS
+  // ============================================
+
+  function box(w: number, h: number, d: number, material: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  }
+
+  function cyl(rT: number, rB: number, h: number, seg: number, material: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(rT, rB, h, seg), material);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  }
+
+  // ============================================
+  // BUILD THE MAIN FACILITY (Gudang Utama)
+  // ============================================
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), mat.ground);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.1;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  scene.add(box(55, 0.2, 45, mat.groundPad, 0, 0, 0));
+
+  scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, -12));
+  scene.add(box(3, 0.25, 45, mat.road, -15, 0.05, 0));
+  scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, 18));
+  for (let i = -24; i <= 24; i += 4) {
+    scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, -12));
+    scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, 18));
+  }
+
+  // Highway to the distributor (runs north along x=8)
+  scene.add(box(5, 0.25, 76, mat.road, 8, 0.05, -50));
+  for (let z = -18; z >= -84; z -= 4) {
+    scene.add(box(0.3, 0.02, 1.5, mat.roadMark, 8, 0.28, z));
+  }
+
+  // Main Warehouse
+  scene.add(box(22, 8, 16, mat.building, 8, 4, 2));
+  scene.add(box(23, 0.5, 17, mat.roof, 8, 8.25, 2));
+  scene.add(box(23, 1.5, 0.5, mat.metalDark, 8, 9, 2));
+  for (let i = -2; i <= 18; i += 4) {
+    scene.add(box(2.5, 2, 0.1, mat.glass, i, 5, -5.95));
+    scene.add(box(2.5, 2, 0.1, mat.glass, i, 5, 9.95));
+  }
+  for (let i = 1; i <= 15; i += 5) {
+    scene.add(box(3.5, 4, 0.3, mat.door, i, 2, -6.1));
+  }
+
+  // RFID Gate Portals
+  function createGate(x: number, y: number, z: number, rotY: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(box(0.35, 4.2, 0.35, mat.metalDark, -1.5, 2.1, 0));
+    g.add(box(0.35, 4.2, 0.35, mat.metalDark, 1.5, 2.1, 0));
+    g.add(box(3.35, 0.25, 0.35, mat.metalDark, 0, 4.15, 0));
+    g.add(box(0.08, 2.8, 0.7, mat.rfidCyan, -1.3, 2.6, 0));
+    g.add(box(0.08, 2.8, 0.7, mat.rfidCyan, 1.3, 2.6, 0));
+    g.add(box(2, 0.08, 0.7, mat.rfidCyan, 0, 4.05, 0));
+    g.add(cyl(0.12, 0.12, 0.25, 8, mat.rfidGreen, 0, 4.4, 0));
+    g.position.set(x, y, z);
+    if (rotY) g.rotation.y = rotY;
+    return g;
+  }
+  scene.add(createGate(3, 0.1, -8, 0));
+  scene.add(createGate(8, 0.1, -8, 0));
+  scene.add(createGate(13, 0.1, -8, 0));
+  scene.add(createGate(-8, 0.1, 5, Math.PI / 2));
+
+  // Server Room
+  scene.add(box(10, 6, 8, mat.buildingDark, -20, 3, -5));
+  scene.add(box(11, 0.4, 9, mat.roof, -20, 6.2, -5));
+  for (let i = -23; i <= -17; i += 3) scene.add(box(1.5, 1.5, 0.1, mat.glass, i, 4, -9.05));
+  const serverLeds: THREE.Mesh[] = [];
+  for (let i = -23; i <= -17; i += 2) {
+    scene.add(box(0.8, 4, 1.5, mat.server, i, 2.5, -6));
+    for (let j = 1; j <= 4; j++) {
+      const led = box(0.3, 0.08, 0.08, mat.srvLed, i, j, -5.2);
+      scene.add(led);
+      serverLeds.push(led);
+    }
+  }
+  scene.add(cyl(0.2, 0.3, 2, 8, mat.metal, -17, 7.2, -3));
+  const dish = cyl(1.2, 0.3, 0.3, 16, mat.antenna, -17, 8.5, -3);
+  dish.rotation.x = -0.4;
+  scene.add(dish);
+
+  // Conveyor Belt
+  scene.add(box(20, 0.3, 2, mat.conveyor, -5, 1.2, 5));
+  scene.add(box(19, 0.08, 1.6, mat.belt, -5, 1.38, 5));
+  for (let i = -13; i <= 3; i += 4) {
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 4.2));
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 5.8));
+  }
+  [-12, -8, -4, 0, 3].forEach((bx) => {
+    scene.add(box(1.2, 1, 1, mat.crate, bx, 2, 5));
+    scene.add(box(0.5, 0.3, 0.04, mat.crateTag, bx, 2.2, 4.46));
+  });
+
+  // Pallet Racks
+  function createRack(rx: number, rz: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(box(0.15, 5, 0.15, mat.metalDark, -1.5, 2.5, 0));
+    g.add(box(0.15, 5, 0.15, mat.metalDark, 1.5, 2.5, 0));
+    for (let i = 1; i <= 4; i += 1.5) g.add(box(3.2, 0.08, 1.2, mat.metal, 0, i, 0));
+    for (let i = 1.2; i <= 3.5; i += 1.5) {
+      g.add(box(1.2, 0.8, 0.8, mat.crate, -0.5, i + 0.4, 0));
+      g.add(box(1, 0.6, 0.8, mat.crate, 0.8, i + 0.3, 0));
+    }
+    g.position.set(rx, 0, rz);
+    return g;
+  }
+  for (let z = -2; z <= 8; z += 4) {
+    scene.add(createRack(3, z));
+    scene.add(createRack(18, z));
+  }
+
+  // Antenna Towers
+  function createTower(tx: number, tz: number, h: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(cyl(0.12, 0.18, h, 8, mat.metal, 0, h / 2, 0));
+    g.add(cyl(0.5, 0.7, 0.3, 8, mat.groundPad, 0, 0.15, 0));
+    const p1 = box(0.7, 1, 0.12, mat.antenna, 0, h - 0.7, 0.25);
+    g.add(p1);
+    const p2 = box(0.7, 1, 0.12, mat.antenna, 0.25, h - 0.7, 0);
+    p2.rotation.y = Math.PI / 3;
+    g.add(p2);
+    const p3 = box(0.7, 1, 0.12, mat.antenna, -0.25, h - 0.7, 0);
+    p3.rotation.y = -Math.PI / 3;
+    g.add(p3);
+    g.add(cyl(0.08, 0.08, 0.2, 8, mat.rfidGreen, 0, h + 0.1, 0));
+    g.position.set(tx, 0, tz);
+    return g;
+  }
+  scene.add(createTower(25, -18, 12));
+  scene.add(createTower(-25, 20, 10));
+  scene.add(createTower(25, 20, 11));
+
+  // Parked scenery trucks
+  function createTruck(tx: number, tz: number, ry: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(box(2.5, 2.5, 3, mat.truck, 0, 1.5, -2.5));
+    g.add(box(2.2, 1, 0.1, mat.glass, 0, 2.2, -4));
+    g.add(box(2.8, 3, 7, mat.truckBody, 0, 1.8, 2));
+    (
+      [
+        [-1.2, -2.5],
+        [-1.2, 1],
+        [1.2, -2.5],
+        [1.2, 1],
+      ] as Array<[number, number]>
+    ).forEach(([wx, wz]) => {
+      const w = cyl(0.4, 0.4, 0.3, 12, mat.metalDark, wx, 0.4, wz);
+      w.rotation.z = Math.PI / 2;
+      g.add(w);
+    });
+    g.position.set(tx, 0, tz);
+    if (ry) g.rotation.y = ry;
+    return g;
+  }
+  scene.add(createTruck(16, -16, 0));
+
+  // ============================================
+  // WORKER HUMANOIDS
+  // ============================================
+
+  interface WorkerRefs {
+    group: THREE.Group;
+    leftArm: THREE.Group;
+    rightArm: THREE.Group;
+    leftLeg: THREE.Group;
+    rightLeg: THREE.Group;
+    carryCrate: THREE.Mesh;
+    scanner: THREE.Mesh;
+  }
+
+  function createWorker(helmetMat: THREE.Material): WorkerRefs {
+    const g = new THREE.Group();
+
+    // Legs (pivot at hip)
+    const leftLeg = new THREE.Group();
+    leftLeg.add(box(0.17, 0.54, 0.19, mat.workerPants, 0, -0.27, 0));
+    leftLeg.position.set(-0.11, 0.97, 0);
+    g.add(leftLeg);
+
+    const rightLeg = new THREE.Group();
+    rightLeg.add(box(0.17, 0.54, 0.19, mat.workerPants, 0, -0.27, 0));
+    rightLeg.position.set(0.11, 0.97, 0);
+    g.add(rightLeg);
+
+    // Torso + vest
+    g.add(box(0.44, 0.58, 0.27, mat.workerBody, 0, 1.3, 0));
+    g.add(box(0.46, 0.36, 0.29, mat.workerVest, 0, 1.2, 0)); // hi-vis vest band
+
+    // Head
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 8, 7), mat.workerSkin);
+    head.position.set(0, 1.74, 0);
+    head.castShadow = true;
+    g.add(head);
+
+    // Helmet
+    const helm = cyl(0.175, 0.165, 0.14, 10, helmetMat, 0, 1.87, 0);
+    g.add(helm);
+
+    // Arms (pivot at shoulder)
+    const leftArm = new THREE.Group();
+    leftArm.add(box(0.15, 0.48, 0.15, mat.workerBody, 0, -0.24, 0));
+    leftArm.position.set(-0.3, 1.57, 0);
+    g.add(leftArm);
+
+    const rightArm = new THREE.Group();
+    rightArm.add(box(0.15, 0.48, 0.15, mat.workerBody, 0, -0.24, 0));
+    rightArm.position.set(0.3, 1.57, 0);
+    g.add(rightArm);
+
+    // Scanner (small handheld device, attached to right arm)
+    const scanner = box(0.1, 0.22, 0.07, mat.rfidCyan, 0.05, -0.55, 0.07);
+    scanner.visible = false;
+    rightArm.add(scanner);
+
+    // Carry crate (held in front when carrying)
+    const carryCrate = box(0.6, 0.55, 0.55, mat.heroCrate, 0, 1.28, -0.45);
+    carryCrate.visible = false;
+    g.add(carryCrate);
+
+    return { group: g, leftArm, rightArm, leftLeg, rightLeg, carryCrate, scanner };
+  }
+
+  const worker1 = createWorker(mat.workerHelmet);
+  worker1.group.position.set(8, 0, -60); // hidden initially
+  scene.add(worker1.group);
+
+  const worker2 = createWorker(mat.workerHelmet);
+  worker2.group.position.set(0, -60, 0);
+  scene.add(worker2.group);
+
+  const hubWorker = createWorker(mat.workerHelmetHub);
+  hubWorker.group.position.set(8, 0, -60); // hidden initially
+  scene.add(hubWorker.group);
+
+  // Guard Booth
+  scene.add(box(3, 3, 3, mat.building, -25, 1.5, -12));
+  scene.add(box(3.5, 0.3, 3.5, mat.roof, -25, 3.15, -12));
+  scene.add(box(2, 1.5, 0.1, mat.glass, -25, 2, -13.55));
+
+  // Solar Panels
+  for (let i = 0; i < 4; i++) {
+    const g = new THREE.Group();
+    const p = box(3, 0.08, 2, mat.solar, 0, 1.5, 0);
+    p.rotation.x = -0.3;
+    g.add(p);
+    g.add(cyl(0.08, 0.08, 1.5, 6, mat.metalDark, 0, 0.75, 0));
+    g.position.set(5 + i * 4, 0, 16);
+    scene.add(g);
+  }
+
+  // Trees
+  function createTree(tx: number, tz: number, s: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(cyl(0.12 * s, 0.2 * s, 2 * s, 6, mat.trunk, 0, s, 0));
+    const f1 = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2 * s, 1), mat.tree);
+    f1.position.set(0, 2.3 * s, 0);
+    f1.castShadow = true;
+    g.add(f1);
+    const f2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9 * s, 1), mat.treeDark);
+    f2.position.set(0.4 * s, 3 * s, 0.2 * s);
+    f2.castShadow = true;
+    g.add(f2);
+    g.position.set(tx, 0, tz);
+    return g;
+  }
+  (
+    [
+      [-30, -20, 1.2], [-33, -15, 0.9], [-30, -8, 1.1], [-32, 0, 1.0], [-30, 8, 1.3],
+      [-33, 15, 0.8], [-30, 22, 1.1], [30, -3, 0.9], [33, 5, 1.1], [30, 13, 1.0],
+      [32, 20, 1.3], [-10, 25, 0.9], [0, 27, 1.1], [10, 25, 1.0], [20, 26, 0.8],
+      // line the highway to the distributor
+      [-2, -30, 1.0], [18, -34, 0.9], [-2, -50, 1.1], [18, -54, 1.0], [-2, -70, 0.9], [18, -74, 1.1],
+    ] as Array<[number, number, number]>
+  ).forEach(([tx, tz, ts]) => scene.add(createTree(tx, tz, ts)));
+
+  // ============================================
+  // DISTRIBUTOR RECEIVING FACILITY (north, z ~ -86)
+  // ============================================
+
+  scene.add(box(30, 0.2, 26, mat.groundPad, 8, 0, -84));
+  scene.add(box(16, 7, 12, mat.building, 8, 3.5, -88));
+  scene.add(box(17, 0.5, 13, mat.roof, 8, 7.25, -88));
+  for (let i = 2; i <= 14; i += 6) scene.add(box(3.2, 3.5, 0.3, mat.door, i, 1.75, -82.1));
+  for (let i = 2; i <= 14; i += 6) scene.add(box(2, 1.6, 0.1, mat.glass, i, 4.5, -82.1));
+  scene.add(createGate(8, 0.1, -80, 0));
+  scene.add(createTower(-8, -86, 9));
+
+  // ============================================
+  // HERO PALLET (the followed shipment)
+  // ============================================
+
+  const heroPallet = new THREE.Group();
+  heroPallet.add(box(2.2, 0.3, 2.2, mat.pallet, 0, 0.15, 0));
+  const heroCrate = box(1.8, 1.7, 1.8, mat.heroCrate, 0, 1.15, 0);
+  heroPallet.add(heroCrate);
+  heroPallet.add(box(0.6, 0.42, 0.05, mat.rfidGreen, 0, 1.3, 0.92)); // glowing RFID tag
+  heroPallet.add(box(1.4, 0.04, 1.4, mat.crateTag, 0, 2.02, 0)); // top label band
+  const heroGlow = new THREE.PointLight(0x00e5a0, 0.7, 7);
+  heroGlow.position.set(0, 1.4, 0);
+  heroPallet.add(heroGlow);
+  scene.add(heroPallet);
+
+  // ============================================
+  // SHIPMENT TRUCK (moves during transit)
+  // ============================================
+
+  const shipmentTruck = createTruck(8, -16, 0);
+  scene.add(shipmentTruck);
+
+  // ============================================
+  // SMART FORKLIFT (storage / picking)
+  // ============================================
+
+  const forklift = new THREE.Group();
+  forklift.add(box(1.6, 1.3, 2.6, mat.forklift, 0, 0.9, 0.2));
+  forklift.add(box(1.2, 1.1, 0.1, mat.metalDark, 0, 1.9, 0.9)); // cage back
+  forklift.add(box(0.12, 2.6, 0.12, mat.metalDark, -0.5, 1.4, -1.3)); // mast L
+  forklift.add(box(0.12, 2.6, 0.12, mat.metalDark, 0.5, 1.4, -1.3)); // mast R
+  forklift.add(box(0.12, 0.1, 1.3, mat.metal, -0.45, 0.35, -2)); // fork L
+  forklift.add(box(0.12, 0.1, 1.3, mat.metal, 0.45, 0.35, -2)); // fork R
+  (
+    [
+      [-0.75, 1],
+      [0.75, 1],
+      [-0.75, -0.8],
+      [0.75, -0.8],
+    ] as Array<[number, number]>
+  ).forEach(([wx, wz]) => {
+    const w = cyl(0.35, 0.35, 0.25, 12, mat.metalDark, wx, 0.35, wz);
+    w.rotation.z = Math.PI / 2;
+    forklift.add(w);
+  });
+  forklift.position.set(0, -60, 0); // hidden until storage
+  scene.add(forklift);
+
+  // ============================================
+  // ANIMATED RFID SIGNAL WAVES (gates)
+  // ============================================
+
+  interface WaveData {
+    speed: number;
+    phase: number;
+    baseY: number;
+  }
+  const waves: THREE.Mesh[] = [];
+  function addWave(x: number, y: number, z: number): void {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.3, 0.6, 32),
+      new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    ring.position.set(x, y, z);
+    ring.rotation.x = -Math.PI / 2;
+    ring.userData = { speed: 0.4 + Math.random() * 0.3, phase: Math.random() * Math.PI * 2, baseY: y } as WaveData;
+    scene.add(ring);
+    waves.push(ring);
+  }
+  addWave(3, 3, -8);
+  addWave(8, 3, -8);
+  addWave(13, 3, -8);
+  addWave(-8, 3, 5);
+  addWave(8, 3, -80); // distributor gate
+
+  // --- Radar ring (picking) ---
+  const radarRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.5, 0.85, 40),
+    new THREE.MeshBasicMaterial({ color: 0x00e5a0, transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  radarRing.rotation.x = -Math.PI / 2;
+  radarRing.position.set(0, -60, 0);
+  scene.add(radarRing);
+  const radarMat = radarRing.material as THREE.MeshBasicMaterial;
+
+  // --- Scan plane + sweep line (storage) ---
+  const scanPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(56, 46),
+    new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0, side: THREE.DoubleSide }),
+  );
+  scanPlane.rotation.x = -Math.PI / 2;
+  scanPlane.position.set(8, 0.3, 2);
+  scene.add(scanPlane);
+  const scanPlaneMat = scanPlane.material as THREE.MeshBasicMaterial;
+
+  const scanLineMesh = new THREE.Mesh(new THREE.PlaneGeometry(56, 0.3), mat.scanLine);
+  scanLineMesh.rotation.x = -Math.PI / 2;
+  scanLineMesh.position.set(8, 0.35, 2);
+  scene.add(scanLineMesh);
+
+  // --- Data flow lines (transit) ---
+  const dataFlowLines: Array<THREE.Mesh<THREE.TubeGeometry, THREE.ShaderMaterial>> = [];
+  function addDataLine(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number): void {
+    const curve = new THREE.LineCurve3(new THREE.Vector3(x1, y1, z1), new THREE.Vector3(x2, y2, z2));
+    const tubeGeo = new THREE.TubeGeometry(curve, 24, 0.18, 8, false);
+    const tubeMat = new THREE.ShaderMaterial({
+      uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0x00e5a0) }, opacity: { value: 0 } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `uniform float time; uniform vec3 color; uniform float opacity; varying vec2 vUv;
+        void main(){ float pulse=sin((vUv.x*15.0)-(time*8.0))*0.5+0.5; pulse=pow(pulse,4.0); gl_FragColor=vec4(color,pulse*opacity); }`,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const tube = new THREE.Mesh(tubeGeo, tubeMat);
+    scene.add(tube);
+    dataFlowLines.push(tube);
+  }
+  // Gudang utama server -> distributor (ASN in transit)
+  addDataLine(-20, 6, -5, 8, 6, -40);
+  addDataLine(8, 6, -40, 8, 6, -86);
+  addDataLine(8, 5, -20, 8, 5, -70);
+
+  // --- Warehouse highlight (storage) ---
+  const hlWarehouse = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(24, 10, 18)),
+    new THREE.LineBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0 }),
+  );
+  hlWarehouse.position.set(8, 4, 2);
+  scene.add(hlWarehouse);
+
+  // ============================================
+  // SCROLL -> JOURNEY PROGRESS
+  // ============================================
+
+  let sceneOpacity = 1;
+  let targetOpacity = 1;
+
+  function updateProgressFromScroll() {
+    const immersive = document.getElementById('immersive');
+    const vh = window.innerHeight;
+    if (immersive) {
+      const rect = immersive.getBoundingClientRect();
+      const scrolled = -rect.top;
+      const denom = immersive.offsetHeight - vh;
+      journeyProgress = denom > 0 ? Math.max(0, Math.min(1, scrolled / denom)) : 0;
+
+      const inImmersive = rect.top < vh && rect.bottom > 0;
+      container!.style.zIndex = inImmersive ? '2' : '-1';
+    }
+
+    // Fade scene out as the contact section approaches
+    const contactEl = document.getElementById('contact');
+    if (contactEl) {
+      const contactTop = contactEl.offsetTop;
+      targetOpacity = window.scrollY + vh * 0.5 >= contactTop ? 0 : 1;
+    }
+  }
+
+  let scrollTicking = false;
+  const onScroll = () => {
+    if (!scrollTicking) {
+      requestAnimationFrame(() => {
+        updateProgressFromScroll();
+        scrollTicking = false;
+      });
+      scrollTicking = true;
+    }
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  updateProgressFromScroll();
+
+  // ============================================
+  // ANIMATION LOOP
+  // ============================================
+
+  const clock = new THREE.Clock();
+  const targetCamPos = new THREE.Vector3();
+  const currentLookAt = new THREE.Vector3(8, 2, -16);
+  const targetLookAt = new THREE.Vector3();
+  const heroVec = new THREE.Vector3();
+  let targetFog = 0.004;
+  let lastStage = -1;
+  let rafId = 0;
+
+  // Prime the overlay with the first stage.
+  setStage(0);
+
+  function animate() {
+    rafId = requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    const p = journeyProgress;
+
+    // --- Hero pallet position ---
+    const hero = heroAt(p);
+    heroVec.set(hero.x, hero.y, hero.z);
+    heroPallet.position.set(hero.x, hero.y, hero.z);
+    heroPallet.rotation.y = Math.sin(t * 0.3) * 0.04;
+
+    // --- Shipment truck ---
+    const transitStart = 4 / STAGE_COUNT; // stage 4 (transit)
+    const receivingStart = 5 / STAGE_COUNT; // stage 5 (receiving)
+    let truckZ: number;
+    if (p < transitStart) truckZ = -16;
+    else if (p < receivingStart) truckZ = hero.z; // carry the pallet
+    else truckZ = WAYPOINTS[5].z; // parked at distributor
+    shipmentTruck.position.set(8, 0, truckZ);
+
+    // --- Camera follows the pallet ---
+    const off = camOffsetAt(p);
+    targetCamPos.set(hero.x + off.x, hero.y + off.y, hero.z + off.z);
+    targetLookAt.set(hero.x, hero.y + 1, hero.z);
+
+    // Apply interactive orbit + zoom on top of scroll-driven position
+    if (orbitYaw !== 0 || orbitPitch !== 0 || orbitZoom !== 1.0) {
+      const toCamera = new THREE.Vector3().subVectors(targetCamPos, targetLookAt);
+      // Horizontal orbit (yaw around world Y axis)
+      toCamera.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+      // Vertical orbit (pitch around local right axis)
+      const rightAxis = new THREE.Vector3().crossVectors(toCamera, new THREE.Vector3(0, 1, 0)).normalize();
+      toCamera.applyAxisAngle(rightAxis, orbitPitch);
+      // Zoom (scale distance from lookAt)
+      toCamera.multiplyScalar(orbitZoom);
+      targetCamPos.copy(targetLookAt).add(toCamera);
+    }
+
+    camera.position.lerp(targetCamPos, 0.028);
+    currentLookAt.lerp(targetLookAt, 0.038);
+    camera.lookAt(currentLookAt);
+
+    // --- Stage bookkeeping ---
+    const stageIdx = stageIndexAt(p);
+    if (stageIdx !== lastStage) {
+      setStage(stageIdx);
+      lastStage = stageIdx;
+    }
+    targetFog = STAGES[stageIdx].fogDensity;
+    fog.density += (targetFog - fog.density) * 0.04;
+
+    // --- Scene opacity ---
+    sceneOpacity += (targetOpacity - sceneOpacity) * 0.05;
+    container!.style.opacity = String(sceneOpacity);
+
+    // --- Project pins onto the moving camera ---
+    projectPins(camera);
+
+    // --- Signal waves ---
+    waves.forEach((w) => {
+      const ud = w.userData as WaveData;
+      const ph = (t * ud.speed + ud.phase) % 1;
+      const s = 0.3 + 2.7 * ph;
+      w.scale.set(s, s, 1);
+      (w.material as THREE.MeshBasicMaterial).opacity = 0.6 * (1 - ph);
+      w.position.y = ud.baseY + ph * 0.5;
+    });
+
+    // --- Server LEDs ---
+    serverLeds.forEach((led) => {
+      (led.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.2 + 0.8 * Math.abs(Math.sin(t * 3 + led.position.x * 5));
+    });
+
+    // --- Stage 0 / 3: gate read pulse ---
+    if (stageIdx === 0 || stageIdx === 3 || stageIdx === 5) {
+      rfidLight1.intensity = 2 + Math.sin(t * 3) * 1.2;
+      rfidLight1.position.set(8, 4, stageIdx === 5 ? -80 : -8);
+      rfidLight2.intensity = 1.4 + Math.sin(t * 2.5) * 0.7;
+    } else {
+      rfidLight1.intensity += (1 - rfidLight1.intensity) * 0.04;
+      rfidLight2.intensity += (0.8 - rfidLight2.intensity) * 0.04;
+    }
+
+    // --- Worker animations per stage ---
+    // Stage 0 (Inbound): worker1 at gate scanning arriving pallet
+    if (stageIdx === 0) {
+      worker1.group.position.set(11, 0, -9);
+      worker1.group.rotation.y = -Math.PI * 0.5;
+      worker1.scanner.visible = true;
+      worker1.carryCrate.visible = false;
+      // Scanning gesture: right arm raised toward gate
+      worker1.rightArm.rotation.x = -0.9 + Math.sin(t * 1.5) * 0.15;
+      worker1.leftArm.rotation.x = Math.sin(t * 1.2) * 0.1;
+      worker1.leftLeg.rotation.x = 0;
+      worker1.rightLeg.rotation.x = 0;
+      // Bob slightly
+      worker1.group.position.y = Math.sin(t * 1.8) * 0.02;
+    }
+    // Stage 1 (Putaway): worker1 carries box from receiving to rack
+    else if (stageIdx === 1) {
+      // Follow hero path toward rack with slight offset
+      worker1.group.position.set(hero.x - 2, 0, hero.z + 1.5);
+      worker1.group.rotation.y = Math.PI * 0.1;
+      worker1.scanner.visible = false;
+      worker1.carryCrate.visible = true;
+      // Arms up carrying crate
+      worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 2) * 0.05;
+      worker1.leftArm.rotation.x = -1.3 + Math.sin(t * 2 + 0.5) * 0.05;
+      // Walk cycle
+      worker1.leftLeg.rotation.x = Math.sin(t * 3.5) * 0.35;
+      worker1.rightLeg.rotation.x = -Math.sin(t * 3.5) * 0.35;
+      worker1.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.05;
+    }
+    // Stage 2 (Picking): worker1 at rack reaching for item
+    else if (stageIdx === 2) {
+      worker1.group.position.set(hero.x + 2, 0, hero.z - 0.5);
+      worker1.group.rotation.y = Math.PI * 1.1;
+      worker1.scanner.visible = true;
+      worker1.carryCrate.visible = false;
+      // Reaching up to rack
+      worker1.rightArm.rotation.x = -1.6 + Math.sin(t * 1.0) * 0.2;
+      worker1.leftArm.rotation.x = -0.5 + Math.sin(t * 0.8) * 0.1;
+      // Walk toward staging
+      worker1.leftLeg.rotation.x = Math.sin(t * 2.8) * 0.28;
+      worker1.rightLeg.rotation.x = -Math.sin(t * 2.8) * 0.28;
+      worker1.group.position.y = Math.abs(Math.sin(t * 2.8)) * 0.04;
+    }
+    // Stage 3 (Outbound): worker2 loads boxes onto truck at dock
+    else if (stageIdx === 3) {
+      worker1.group.position.set(0, -60, 0); // hide worker1
+      worker2.group.position.set(hero.x - 1.5, 0, hero.z + 1);
+      worker2.group.rotation.y = Math.PI;
+      worker2.scanner.visible = false;
+      worker2.carryCrate.visible = true;
+      // Loading motion: arms moving up then down
+      const loadPhase = (t * 0.9) % (Math.PI * 2);
+      worker2.rightArm.rotation.x = -0.8 - Math.abs(Math.sin(loadPhase)) * 0.9;
+      worker2.leftArm.rotation.x = -0.8 - Math.abs(Math.sin(loadPhase + 0.3)) * 0.9;
+      worker2.leftLeg.rotation.x = Math.sin(t * 2.2) * 0.2;
+      worker2.rightLeg.rotation.x = -Math.sin(t * 2.2) * 0.2;
+      worker2.group.position.y = Math.abs(Math.sin(t * 2.2)) * 0.03;
+    }
+    // Stage 4 (Transit): hide workers
+    else if (stageIdx === 4) {
+      worker1.group.position.set(0, -60, 0);
+      worker2.group.position.set(0, -60, 0);
+      hubWorker.group.position.set(0, -60, 0);
+    }
+    // Stage 5 (Receiving/Hub): hub worker at distributor gate
+    else if (stageIdx === 5) {
+      worker1.group.position.set(0, -60, 0);
+      worker2.group.position.set(0, -60, 0);
+      hubWorker.group.position.set(5, 0, -82);
+      hubWorker.group.rotation.y = Math.PI * 0.4;
+      hubWorker.scanner.visible = true;
+      hubWorker.carryCrate.visible = false;
+      hubWorker.rightArm.rotation.x = -1.1 + Math.sin(t * 1.3) * 0.18;
+      hubWorker.leftArm.rotation.x = Math.sin(t * 1.1) * 0.12;
+      hubWorker.leftLeg.rotation.x = 0;
+      hubWorker.rightLeg.rotation.x = 0;
+      hubWorker.group.position.y = Math.sin(t * 1.6) * 0.02;
+    }
+
+    // Reset non-active workers smoothly when stage changes away
+    if (stageIdx !== 3) {
+      worker2.group.position.set(0, -60, 0);
+    }
+    if (stageIdx !== 5) {
+      hubWorker.group.position.lerp(new THREE.Vector3(hubWorker.group.position.x, -60, hubWorker.group.position.z), 0.1);
+    }
+    if (stageIdx !== 0 && stageIdx !== 1 && stageIdx !== 2) {
+      worker1.scanner.visible = false;
+      worker1.carryCrate.visible = false;
+    }
+
+    // --- Stage 1: storage scan + highlight + forklift ---
+    if (stageIdx === 1 || stageIdx === 2) {
+      forklift.position.set(hero.x - 0.2, 0, hero.z + 2.6);
+      forklift.rotation.y = Math.PI;
+    } else {
+      forklift.position.set(0, -60, 0);
+    }
+    if (stageIdx === 1) {
+      scanPlaneMat.opacity += (0.05 - scanPlaneMat.opacity) * 0.05;
+      scanLineMesh.position.z = 2 - 23 + ((t * 6) % 46);
+      mat.scanLine.opacity += (0.5 - mat.scanLine.opacity) * 0.05;
+      hlWarehouse.material.opacity += (0.55 - hlWarehouse.material.opacity) * 0.05;
+    } else {
+      scanPlaneMat.opacity += (0 - scanPlaneMat.opacity) * 0.05;
+      mat.scanLine.opacity += (0 - mat.scanLine.opacity) * 0.05;
+      hlWarehouse.material.opacity += (0 - hlWarehouse.material.opacity) * 0.05;
+    }
+
+    // --- Stage 2: radar pulse on the hero pallet ---
+    if (stageIdx === 2) {
+      radarRing.position.set(hero.x, 0.4, hero.z);
+      const rp = (t * 0.8) % 1;
+      const rs = 1 + rp * 3;
+      radarRing.scale.set(rs, rs, 1);
+      radarMat.opacity = 0.8 * (1 - rp);
+    } else {
+      radarMat.opacity += (0 - radarMat.opacity) * 0.08;
+    }
+
+    // --- Stage 4: data flow / ASN ---
+    if (stageIdx === 4 || stageIdx === 5) {
+      dataFlowLines.forEach((line, i) => {
+        line.material.uniforms.time.value = t + i * 0.5;
+        line.material.uniforms.opacity.value += (0.85 - line.material.uniforms.opacity.value) * 0.08;
+      });
+      serverGlow.intensity += (1.1 - serverGlow.intensity) * 0.04;
+    } else {
+      dataFlowLines.forEach((line) => {
+        line.material.uniforms.opacity.value += (0 - line.material.uniforms.opacity.value) * 0.05;
+      });
+      serverGlow.intensity += (0.6 - serverGlow.intensity) * 0.04;
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // ============================================
+  // RESIZE
+  // ============================================
+
+  const onResize = () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  };
+  window.addEventListener('resize', onResize);
+
+  animate();
+
+  // ============================================
+  // CLEANUP
+  // ============================================
+
+  return () => {
+    cancelAnimationFrame(rafId);
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('resize', onResize);
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+    domEl.removeEventListener('mousedown', onMouseDown);
+    domEl.removeEventListener('wheel', onWheel);
+    domEl.removeEventListener('dblclick', onDblClick);
+    domEl.removeEventListener('touchstart', onTouchStart);
+    domEl.removeEventListener('touchmove', onTouchMove);
+    domEl.removeEventListener('touchend', onTouchEnd);
+    renderer.domElement.remove();
+    renderer.dispose();
+    scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
+      else if (m) m.dispose();
+    });
+  };
+}
