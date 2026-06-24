@@ -412,8 +412,8 @@ export function initScrollEngine(): () => void {
     const heroExplore = document.getElementById('hero-explore');
     if (heroExplore) {
       onEl(heroExplore, 'click', () => {
-        const immersiveSection = document.getElementById('immersive');
-        if (immersiveSection) immersiveSection.scrollIntoView({ behavior: 'smooth' });
+        const wv = document.getElementById('warehouse-view');
+        if (wv) wv.scrollIntoView({ behavior: 'smooth' });
       });
     }
 

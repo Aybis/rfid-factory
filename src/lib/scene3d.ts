@@ -18,6 +18,9 @@ import { setStage, projectPins } from './overlay';
 // Shared scroll-driven journey progress in [0,1].
 let journeyProgress = 0;
 
+// Dual-view mode: true when #warehouse-view section is the active viewport section.
+let dualViewActive = false;
+
 export function initScene3D(): () => void {
   'use strict';
 
@@ -37,6 +40,17 @@ export function initScene3D(): () => void {
   camera.position.set(24, 11, 0);
   camera.lookAt(8, 2, -16);
 
+  // ── Dual-view cameras (used only in warehouse-overview section) ──
+  // LEFT — Inbound: road approach view, camera beside entrance road looking at the inbound dock
+  const cameraLeft = new THREE.PerspectiveCamera(52, 0.5, 0.1, 600);
+  cameraLeft.position.set(-5, 10, -36);
+  cameraLeft.lookAt(8, 2, -16);
+
+  // RIGHT — Outbound destination: distributor hub receiving end (~x8, z=-86)
+  const cameraRight = new THREE.PerspectiveCamera(52, 0.5, 0.1, 600);
+  cameraRight.position.set(35, 7, -61);
+  cameraRight.lookAt(8, 3, -84);
+
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -52,40 +66,60 @@ export function initScene3D(): () => void {
 
   let orbitYaw = 0;    // accumulated horizontal drag (radians)
   let orbitPitch = 0;  // accumulated vertical drag (radians)
-  let orbitZoom = 1.0; // zoom multiplier (1 = scroll-driven default)
+  let orbitZoom = 2.0; // zoom multiplier — 2.0 = camera starts 2× further from pallet
   let dragActive = false;
+  let isPanDrag = false; // true = left drag (pan), false = right drag (orbit)
   let dragLastX = 0;
   let dragLastY = 0;
   let pinchLastDist = 0;
+  const panOffset = new THREE.Vector3(0, 0, 0); // world-space pan accumulator
+  const PAN_SENS = 0.035;  // world units per pixel
   const ORBIT_SENS = 0.006;
   const ZOOM_SENS = 0.0012;
 
   const onMouseDown = (e: MouseEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 2) return;
     dragActive = true;
+    isPanDrag = e.button === 0; // left = pan, right = orbit
     dragLastX = e.clientX;
     dragLastY = e.clientY;
+    if (e.button === 2) e.preventDefault(); // suppress context menu
   };
   const onMouseMove = (e: MouseEvent) => {
     if (!dragActive) return;
-    orbitYaw -= (e.clientX - dragLastX) * ORBIT_SENS;
-    orbitPitch -= (e.clientY - dragLastY) * ORBIT_SENS;
-    orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
+    const dx = e.clientX - dragLastX;
+    const dy = e.clientY - dragLastY;
+    if (isPanDrag) {
+      // Left drag — PAN: translate camera+target in camera's local XZ plane
+      const dir = new THREE.Vector3().subVectors(targetLookAt, targetCamPos).normalize();
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+      const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+      panOffset.addScaledVector(right, -dx * PAN_SENS);
+      panOffset.addScaledVector(forward, dy * PAN_SENS);
+    } else {
+      // Right drag — ORBIT: rotate camera around target
+      orbitYaw -= dx * ORBIT_SENS;
+      orbitPitch -= dy * ORBIT_SENS;
+      orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
+    }
     dragLastX = e.clientX;
     dragLastY = e.clientY;
   };
   const onMouseUp = () => { dragActive = false; };
 
-  // Ctrl/Cmd + scroll → zoom
+  // Ctrl/Cmd + scroll → zoom in/out
   const onWheel = (e: WheelEvent) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     orbitZoom *= 1 + e.deltaY * ZOOM_SENS;
-    orbitZoom = Math.max(0.25, Math.min(4.0, orbitZoom));
+    orbitZoom = Math.max(0.3, Math.min(8.0, orbitZoom)); // wider range: 0.3× close-up to 8× far
   };
 
-  // Double-click → reset orbit
-  const onDblClick = () => { orbitYaw = 0; orbitPitch = 0; orbitZoom = 1.0; };
+  // Double-click → reset all interactive offsets to defaults
+  const onDblClick = () => {
+    orbitYaw = 0; orbitPitch = 0; orbitZoom = 2.0; // reset zoom to the 2× default
+    panOffset.set(0, 0, 0);
+  };
 
   // Touch: single finger = orbit, two-finger pinch = zoom
   const onTouchStart = (e: TouchEvent) => {
@@ -110,9 +144,14 @@ export function initScene3D(): () => void {
       pinchLastDist = d;
       e.preventDefault();
     } else if (e.touches.length === 1 && dragActive) {
-      orbitYaw -= (e.touches[0].clientX - dragLastX) * ORBIT_SENS;
-      orbitPitch -= (e.touches[0].clientY - dragLastY) * ORBIT_SENS;
-      orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
+      // Single-finger touch = PAN (matches new left-drag behaviour)
+      const dx = e.touches[0].clientX - dragLastX;
+      const dy = e.touches[0].clientY - dragLastY;
+      const dir = new THREE.Vector3().subVectors(targetLookAt, targetCamPos).normalize();
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+      const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+      panOffset.addScaledVector(right, -dx * PAN_SENS);
+      panOffset.addScaledVector(forward, dy * PAN_SENS);
       dragLastX = e.touches[0].clientX;
       dragLastY = e.touches[0].clientY;
       e.preventDefault();
@@ -126,6 +165,7 @@ export function initScene3D(): () => void {
   window.addEventListener('mouseup', onMouseUp);
   domEl.addEventListener('wheel', onWheel, { passive: false });
   domEl.addEventListener('dblclick', onDblClick);
+  domEl.addEventListener('contextmenu', (e) => e.preventDefault()); // suppress right-click menu
   domEl.addEventListener('touchstart', onTouchStart, { passive: true });
   domEl.addEventListener('touchmove', onTouchMove, { passive: false });
   domEl.addEventListener('touchend', onTouchEnd);
@@ -671,8 +711,21 @@ export function initScene3D(): () => void {
   let targetOpacity = 1;
 
   function updateProgressFromScroll() {
+    const wv = document.getElementById('warehouse-view');
     const immersive = document.getElementById('immersive');
     const vh = window.innerHeight;
+
+    // Dual-view: active while #warehouse-view is on screen.
+    // Canvas goes to z=2 so the 3D is visible; .wv DOM overlay is at z=3 (above canvas).
+    if (wv) {
+      const wvRect = wv.getBoundingClientRect();
+      const inWV = wvRect.top < vh && wvRect.bottom > 0;
+      dualViewActive = inWV;
+      if (inWV) {
+        container!.style.zIndex = '2';
+      }
+    }
+
     if (immersive) {
       const rect = immersive.getBoundingClientRect();
       const scrolled = -rect.top;
@@ -680,7 +733,12 @@ export function initScene3D(): () => void {
       journeyProgress = denom > 0 ? Math.max(0, Math.min(1, scrolled / denom)) : 0;
 
       const inImmersive = rect.top < vh && rect.bottom > 0;
-      container!.style.zIndex = inImmersive ? '2' : '-1';
+      if (inImmersive) {
+        dualViewActive = false;
+        container!.style.zIndex = '2';
+      } else if (!dualViewActive) {
+        container!.style.zIndex = '-1';
+      }
     }
 
     // Fade scene out as the contact section approaches
@@ -691,17 +749,7 @@ export function initScene3D(): () => void {
     }
   }
 
-  let scrollTicking = false;
-  const onScroll = () => {
-    if (!scrollTicking) {
-      requestAnimationFrame(() => {
-        updateProgressFromScroll();
-        scrollTicking = false;
-      });
-      scrollTicking = true;
-    }
-  };
-  window.addEventListener('scroll', onScroll, { passive: true });
+  // Scroll state is now synced every animation frame in animate() — no separate scroll listener needed.
   updateProgressFromScroll();
 
   // ============================================
@@ -722,6 +770,8 @@ export function initScene3D(): () => void {
 
   function animate() {
     rafId = requestAnimationFrame(animate);
+    // Sync scroll-driven state every frame — more reliable than rAF-on-scroll
+    updateProgressFromScroll();
     const t = clock.getElapsedTime();
     const p = journeyProgress;
 
@@ -745,18 +795,21 @@ export function initScene3D(): () => void {
     targetCamPos.set(hero.x + off.x, hero.y + off.y, hero.z + off.z);
     targetLookAt.set(hero.x, hero.y + 1, hero.z);
 
-    // Apply interactive orbit + zoom on top of scroll-driven position
-    if (orbitYaw !== 0 || orbitPitch !== 0 || orbitZoom !== 1.0) {
+    // Apply interactive orbit + zoom (always run — default orbitZoom=2.0 keeps camera further back)
+    {
       const toCamera = new THREE.Vector3().subVectors(targetCamPos, targetLookAt);
-      // Horizontal orbit (yaw around world Y axis)
-      toCamera.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
-      // Vertical orbit (pitch around local right axis)
-      const rightAxis = new THREE.Vector3().crossVectors(toCamera, new THREE.Vector3(0, 1, 0)).normalize();
-      toCamera.applyAxisAngle(rightAxis, orbitPitch);
-      // Zoom (scale distance from lookAt)
-      toCamera.multiplyScalar(orbitZoom);
+      if (orbitYaw !== 0) toCamera.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitYaw);
+      if (orbitPitch !== 0) {
+        const rightAxis = new THREE.Vector3().crossVectors(toCamera, new THREE.Vector3(0, 1, 0)).normalize();
+        toCamera.applyAxisAngle(rightAxis, orbitPitch);
+      }
+      toCamera.multiplyScalar(orbitZoom); // default 2.0 = 2× further than scroll-driven distance
       targetCamPos.copy(targetLookAt).add(toCamera);
     }
+
+    // Apply pan offset — translates the whole camera+target pair in world space
+    targetCamPos.add(panOffset);
+    targetLookAt.add(panOffset);
 
     camera.position.lerp(targetCamPos, 0.028);
     currentLookAt.lerp(targetLookAt, 0.038);
@@ -938,7 +991,53 @@ export function initScene3D(): () => void {
       serverGlow.intensity += (0.6 - serverGlow.intensity) * 0.04;
     }
 
-    renderer.render(scene, camera);
+    if (dualViewActive) {
+      // ── Dual-view: scissor each half with its own camera ──
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const half = Math.floor(W / 2);
+
+      // Ensure full canvas is cleared to opaque dark before scissored passes
+      renderer.setViewport(0, 0, W, H);
+      renderer.setScissorTest(false);
+      const prevExposure = renderer.toneMappingExposure;
+      renderer.toneMappingExposure = 0.75;
+      renderer.setClearColor(0x0d1b2a, 1);
+      renderer.clear(true, true, false);
+
+      renderer.setScissorTest(true);
+
+      // LEFT — Inbound: truck approaching from road to warehouse entrance gate
+      renderer.setViewport(0, 0, half, H);
+      renderer.setScissor(0, 0, half, H);
+      cameraLeft.aspect = half / H;
+      cameraLeft.updateProjectionMatrix();
+      cameraLeft.position.x = -5 + Math.sin(t * 0.10) * 2;
+      cameraLeft.position.z = -36 + Math.cos(t * 0.08) * 2.5;
+      cameraLeft.position.y = 10 + Math.sin(t * 0.06) * 1.0;
+      cameraLeft.lookAt(8, 2, -16);
+      renderer.render(scene, cameraLeft);
+
+      // RIGHT — Distributor Hub (side-on cinematic view)
+      renderer.setViewport(half, 0, W - half, H);
+      renderer.setScissor(half, 0, W - half, H);
+      cameraRight.aspect = (W - half) / H;
+      cameraRight.updateProjectionMatrix();
+      cameraRight.position.x = 35 + Math.sin(t * 0.11 + 1) * 3;
+      cameraRight.position.z = -61 + Math.cos(t * 0.08 + 0.5) * 2;
+      cameraRight.position.y = 7 + Math.sin(t * 0.06 + 1) * 0.8;
+      cameraRight.lookAt(8, 3, -84);
+      renderer.render(scene, cameraRight);
+
+      renderer.setScissorTest(false);
+      renderer.toneMappingExposure = prevExposure;
+      // Always restore full viewport after dual-view, so single-camera renders aren't clipped
+      renderer.setViewport(0, 0, W, H);
+    } else {
+      // Ensure full-canvas viewport before single-camera render (guard against stale scissor state)
+      renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+      renderer.render(scene, camera);
+    }
   }
 
   // ============================================
@@ -960,7 +1059,6 @@ export function initScene3D(): () => void {
 
   return () => {
     cancelAnimationFrame(rafId);
-    window.removeEventListener('scroll', onScroll);
     window.removeEventListener('resize', onResize);
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);

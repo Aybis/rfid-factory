@@ -10,20 +10,37 @@ export default function Hero() {
 
       <h1 className="hero__title">
         <span className="line"><span className="line-inner">Digitalisasi</span></span>
-        <span className="line"><span className="line-inner">Gudang <span className="accent">RFID</span></span></span>
+        <span className="line"><span className="line-inner">Gudang <span className="accent">Modern</span></span></span>
         <span className="line"><span className="line-inner">End-to-End</span></span>
       </h1>
 
       <p className="hero__subtitle">
-        Ikuti perjalanan satu palet — dari barang masuk, penyimpanan,
-        picking, hingga diterima distributor. Setiap langkah terbaca
-        otomatis oleh RFID, real-time dan tanpa kertas.
+        Konversi seluruh operasi gudang manual menjadi alur otomatis berbasis RFID —
+        dari penerimaan, penyimpanan, picking, hingga pengiriman ke distributor.
+        Real-time, akurat, dan bebas kertas.
       </p>
+
+      <div className="hero__stats">
+        <div className="hero__stat">
+          <span className="hero__stat-value">99.8<span className="hero__stat-unit">%</span></span>
+          <span className="hero__stat-label">Akurasi Inventori</span>
+        </div>
+        <div className="hero__stat-divider"></div>
+        <div className="hero__stat">
+          <span className="hero__stat-value">3<span className="hero__stat-unit">×</span></span>
+          <span className="hero__stat-label">Kecepatan Picking</span>
+        </div>
+        <div className="hero__stat-divider"></div>
+        <div className="hero__stat">
+          <span className="hero__stat-value">0<span className="hero__stat-unit"> kertas</span></span>
+          <span className="hero__stat-label">Fully Paperless</span>
+        </div>
+      </div>
 
       <div className="hero__cta">
         <button className="btn-primary" id="hero-cta">Mulai Konsultasi</button>
         <button className="btn-ghost" id="hero-explore">
-          <span className="btn-ghost__inner">Lihat Alur Perjalanan</span>
+          <span className="btn-ghost__inner">Lihat Kedua Gudang</span>
         </button>
       </div>
 

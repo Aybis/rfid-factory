@@ -3,6 +3,7 @@ import Scene3DContainer from './components/Scene3DContainer';
 import Nav from './components/Nav';
 import ProgressDots from './components/ProgressDots';
 import Hero from './components/Hero';
+import WarehouseView from './components/WarehouseView';
 import Immersive from './components/Immersive';
 import Services from './components/Services';
 import Specs from './components/Specs';
@@ -35,6 +36,7 @@ export default function App() {
       <Nav />
       <ProgressDots />
       <Hero />
+      <WarehouseView />
       <Immersive />
       <Services />
       <Specs />
