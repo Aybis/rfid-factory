@@ -228,7 +228,7 @@ export function initScene3D(): () => void {
 
   // Inbound zone light — illuminates dock apron and reader poles
   const inboundGateLight = new THREE.PointLight(0x00d4ff, 1.0, 20);
-  inboundGateLight.position.set(7, 5, 15);
+  inboundGateLight.position.set(9, 3, 13); // at conveyor RFID gate
   scene.add(inboundGateLight);
 
   const serverGlow = new THREE.PointLight(0x00ff88, 0.6, 10);
@@ -324,13 +324,13 @@ export function initScene3D(): () => void {
 
   scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, -12));
   scene.add(box(3, 0.25, 45, mat.road, -15, 0.05, 0));
-  // South inbound road — wide enough for full truck with turning room (z=11..25, width=14)
-  scene.add(box(60, 0.25, 14, mat.road, 0, 0.05, 18));
-  // Edge lines
-  scene.add(box(60, 0.02, 0.2, mat.roadMark, 0, 0.28, 11.2));  // warehouse-side edge
-  scene.add(box(60, 0.02, 0.2, mat.roadMark, 0, 0.28, 24.8));  // outer edge
-  // Centre dashed line
-  for (let i = -28; i <= 28; i += 4) {
+  // South inbound road — diperpanjang ke timur agar truck x=60 tetap di aspal
+  scene.add(box(100, 0.25, 14, mat.road, 12, 0.05, 18));
+  // Edge lines (diperpanjang sesuai road)
+  scene.add(box(100, 0.02, 0.2, mat.roadMark, 12, 0.28, 11.2));  // warehouse-side edge
+  scene.add(box(100, 0.02, 0.2, mat.roadMark, 12, 0.28, 24.8));  // outer edge
+  // Centre dashed line (extended to x=58)
+  for (let i = -38; i <= 58; i += 4) {
     scene.add(box(1.8, 0.02, 0.25, mat.roadMark, i, 0.28, 18));
     scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, -12));
   }
@@ -434,6 +434,19 @@ export function initScene3D(): () => void {
     scene.add(box(0.3, 1.2, 0.3, mat.metalDark, 8.1, 0.6, iz)); // left leg
     scene.add(box(0.3, 1.2, 0.3, mat.metalDark, 9.9, 0.6, iz)); // right leg
   }
+  // ── RFID reader gate (palang) over inbound conveyor ──
+  // Posts straddle the belt (belt width 1.6, posts at ±1.3 from centre x=9)
+  const conveyorGate = new THREE.Group();
+  conveyorGate.add(box(0.22, 3.2, 0.22, mat.metalDark, -1.3, 1.6, 0)); // left post
+  conveyorGate.add(box(0.22, 3.2, 0.22, mat.metalDark,  1.3, 1.6, 0)); // right post
+  conveyorGate.add(box(2.85, 0.22, 0.28, mat.metalDark, 0, 3.1, 0));   // top beam
+  conveyorGate.add(box(0.07, 1.8, 0.5, mat.rfidCyan, -1.1, 2.1, 0));   // left RFID panel
+  conveyorGate.add(box(0.07, 1.8, 0.5, mat.rfidCyan,  1.1, 2.1, 0));   // right RFID panel
+  conveyorGate.add(box(1.8, 0.07, 0.5, mat.rfidCyan,   0,  3.05, 0));  // top RFID panel
+  conveyorGate.add(cyl(0.09, 0.09, 0.18, 8, mat.rfidGreen, 0, 3.25, 0)); // status indicator light
+  conveyorGate.position.set(9, 0, 13); // at z=13, on top of conveyor structure
+  scene.add(conveyorGate);
+
   // Crates on conveyor — hidden until truck arrives (shown by scroll-driven logic)
   const dockCratesGroup = new THREE.Group();
   dockCratesGroup.add(box(1.2, 1.0, 1.0, mat.crate, 9, 2.0, 16.5));
@@ -442,6 +455,19 @@ export function initScene3D(): () => void {
   dockCratesGroup.add(box(1.2, 1.0, 1.0, mat.crate, 9, 2.0, 11.5));
   dockCratesGroup.visible = false;
   scene.add(dockCratesGroup);
+
+  // ── Inbound hero RFID pallet — appears on belt when truck stops at conveyor ──
+  // Positioned approaching the RFID gate (z=15.5, south of gate at z=13)
+  const inboundHeroPallet = new THREE.Group();
+  inboundHeroPallet.add(box(1.8, 0.22, 1.8, mat.pallet, 0, 0.11, 0));          // pallet board
+  inboundHeroPallet.add(box(1.5, 1.5, 1.5, mat.heroCrate, 0, 0.97, 0));        // main crate
+  inboundHeroPallet.add(box(0.6, 0.42, 0.05, mat.rfidGreen, 0, 1.15, 0.77));   // glowing RFID tag
+  inboundHeroPallet.add(box(1.2, 0.04, 1.2, mat.crateTag, 0, 1.75, 0));        // top label band
+  const inboundPalletGlow = new THREE.PointLight(0x00e5a0, 0.8, 6);
+  inboundPalletGlow.position.set(0, 1.2, 0);
+  inboundHeroPallet.add(inboundPalletGlow);
+  inboundHeroPallet.visible = false;
+  scene.add(inboundHeroPallet);
 
   // RFID pallet portal moved off road — small reader post beside road near trees
   scene.add(box(0.2, 3.0, 0.2, mat.metalDark, -2, 1.5, 25));  // post near tree x=0,z=27
@@ -847,8 +873,10 @@ export function initScene3D(): () => void {
   // ANIMATED INBOUND TRUCK — approaches from left (west) along south road
   // ============================================
 
-  // Single animated inbound truck — multi-phase: approach → back-in → dock → leave
-  const inboundTruckMover = createInboundTruck(-35, 18, Math.PI / 2); // start off-screen west
+  // Single animated inbound truck — multi-phase: approach (maju dari timur) → park → leave
+  // rotation.y=Math.PI/2: cab faces WEST (−x) = arah gerak = maju ✓
+  // Rear (local +z) faces EAST (+x); parked at x=1.5 so rear aligns with conveyor at x≈9
+  const inboundTruckMover = createInboundTruck(60, 20, Math.PI / 2); // start off-screen east
   scene.add(inboundTruckMover);
 
   // ============================================
@@ -880,6 +908,7 @@ export function initScene3D(): () => void {
   // Inbound — wave at dock entrance
   addWave(1, 3, -8);   // outbound gate x=1
   addWave(19, 3, -8);  // outbound gate x=19
+  addWave(9, 3, 13);   // inbound conveyor RFID gate
 
   // --- Radar ring (picking) ---
   const radarRing = new THREE.Mesh(
@@ -1038,31 +1067,71 @@ export function initScene3D(): () => void {
       const s0 = Math.max(0, Math.min(1, p / STAGE_0_END));
 
       if (p <= STAGE_0_END) {
-        // Stage 0: truck approaches (s0=0..0.6) then parks (s0=0.6..1)
+        // Stage 0: truck datang dari timur (x=60) → parkir x=1.5 (MAJU — cab menghadap barat)
+        // Rear truck (local +z) = world +x; saat x=1.5, rear ada di x≈9 (align conveyor)
         const PARK_THRESHOLD = 0.60;
         if (s0 < PARK_THRESHOLD) {
-          inboundTruckMover.position.x = -35 + ss(s0 / PARK_THRESHOLD) * 40; // -35 → 5
+          inboundTruckMover.position.x = 60 - ss(s0 / PARK_THRESHOLD) * 58.5; // 60 → 1.5
           dockCratesGroup.visible = false;
+          inboundHeroPallet.visible = false;
         } else {
-          inboundTruckMover.position.x = 5;
-          // Crates fade in smoothly a beat after truck fully stops
+          inboundTruckMover.position.x = 1.5; // parkir — rear sejajar conveyor x≈9
+          // Hero RFID pallet muncul di belt saat truck benar-benar berhenti
+          inboundHeroPallet.visible = s0 > PARK_THRESHOLD + 0.04;
+          inboundHeroPallet.position.set(9, 1.38, 15.5); // di belt, menuju RFID gate (z=13)
+          // Crates ikut muncul setelah pallet
           dockCratesGroup.visible = s0 > PARK_THRESHOLD + 0.08;
         }
         inboundTruckMover.position.z = 20;
       } else {
-        // Past stage 0: truck exits east, hide crates
+        // Selesai stage 0: truck lanjut ke BARAT (maju terus, tidak balik)
         const exitT = ss(Math.min((p - STAGE_0_END) / (STAGE_0_END * 0.5), 1));
-        inboundTruckMover.position.x = 5 + exitT * 60;
+        inboundTruckMover.position.x = 1.5 - exitT * 65; // terus ke barat
         inboundTruckMover.position.z = 20;
         dockCratesGroup.visible = false;
+        inboundHeroPallet.visible = false;
       }
-      inboundTruckMover.rotation.y = Math.PI / 2;
+      inboundTruckMover.rotation.y = Math.PI / 2; // cab faces west = arah gerak = MAJU ✓
     }
 
     // --- Camera follows the pallet ---
     const off = camOffsetAt(p);
     targetCamPos.set(hero.x + off.x, hero.y + off.y, hero.z + off.z);
     targetLookAt.set(hero.x, hero.y + 1, hero.z);
+
+    // ── Stage 0 override: kamera ikut truck saat pendekatan, lalu blend ke palet ──
+    // Sub-phases (s0 = progress dalam stage 0, 0..1):
+    //   0.00 – 0.58  → kamera di belakang/timur truck (follow cam)
+    //   0.58 – 0.74  → blend kamera dari truck ke palet di conveyor
+    //   0.74 – 1.00  → kamera ikut palet masuk warehouse (normal hero follow)
+    if (stageIndexAt(p) === 0) {
+      const STAGE_0_END_C = 1 / STAGE_COUNT;
+      const s0c = Math.max(0, Math.min(1, p / STAGE_0_END_C));
+      const TRUCK_END = 0.58;
+      const BLEND_END = 0.74;
+
+      // Mirror the truck x position (same formula as truck animation block)
+      const ssc = (v: number) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+      const txc = s0c < TRUCK_END ? 60 - ssc(s0c / TRUCK_END) * 58.5 : 1.5;
+
+      // Camera: belakang (timur) + atas + sedikit utara dari truck — melihat ke barat (arah dock)
+      const truckLook = new THREE.Vector3(txc, 2.2, 20);
+      const truckCam  = new THREE.Vector3(txc + 12, 7, 12);
+
+      if (s0c < TRUCK_END) {
+        // Full truck follow
+        targetCamPos.copy(truckCam);
+        targetLookAt.copy(truckLook);
+      } else if (s0c < BLEND_END) {
+        // Blend dari truck ke hero pallet
+        const bl = (s0c - TRUCK_END) / (BLEND_END - TRUCK_END);
+        const heroCamTgt = new THREE.Vector3(hero.x + off.x, hero.y + off.y, hero.z + off.z);
+        const heroLookTgt = new THREE.Vector3(hero.x, hero.y + 1, hero.z);
+        targetCamPos.lerpVectors(truckCam, heroCamTgt, bl);
+        targetLookAt.lerpVectors(truckLook, heroLookTgt, bl);
+      }
+      // s0c >= BLEND_END: targetCamPos/targetLookAt sudah di-set ke hero di atas — tidak diubah lagi
+    }
 
     // Apply interactive orbit + zoom (always run — default orbitZoom=2.0 keeps camera further back)
     {
@@ -1130,6 +1199,12 @@ export function initScene3D(): () => void {
     inboundGateLight.intensity = stageIdx === 0
       ? 2.2 + Math.sin(t * 3.2) * 1.0
       : 0.8 + Math.sin(t * 1.5) * 0.3;
+    // Hero inbound pallet glow — pulse saat stage 0 dan pallet visible
+    if (stageIdx === 0 && inboundHeroPallet.visible) {
+      inboundPalletGlow.intensity = 1.2 + Math.sin(t * 4.5) * 0.8;
+    } else {
+      inboundPalletGlow.intensity = 0;
+    }
 
     // --- Worker animations per stage ---
     // Stage 0 (Inbound): worker1 at south inbound gate scanning arriving pallet
