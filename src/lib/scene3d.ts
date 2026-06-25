@@ -788,6 +788,130 @@ export function initScene3D(): () => void {
   ).forEach(([tx, tz, ts]) => scene.add(createTree(tx, tz, ts)));
 
   // ============================================
+  // NEIGHBORING COMPANY BUILDINGS
+  // ============================================
+
+  /** Create a small company building with a floating canvas label. */
+  function createCompanyBuilding(
+    cx: number, cz: number,
+    w: number, h: number, d: number,
+    wallColor: number, roofColor: number,
+    label: string,
+    accentColor: number = 0x2255aa
+  ): THREE.Group {
+    const g = new THREE.Group();
+
+    // Ground pad
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.7 });
+    g.add(box(w + 4, 0.18, d + 4, padMat, 0, 0.09, 0));
+
+    // Walls
+    const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.5, metalness: 0.2 });
+    g.add(box(w, h, d, wallMat, 0, h / 2, 0));
+
+    // Roof panel
+    const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.55, metalness: 0.25 });
+    g.add(box(w + 0.4, 0.4, d + 0.4, roofMat, 0, h + 0.2, 0));
+
+    // Accent band (facade stripe)
+    const accentMat = new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.4, metalness: 0.5 });
+    g.add(box(w, 0.6, 0.15, accentMat, 0, h * 0.55, d / 2 + 0.08));
+
+    // Door
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.4 });
+    g.add(box(1.4, 2.5, 0.12, doorMat, 0, 1.25, d / 2 + 0.07));
+
+    // Windows (2 each side)
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccee, roughness: 0.1, metalness: 0.3, transparent: true, opacity: 0.75 });
+    for (const wx of [-w * 0.28, w * 0.28]) {
+      g.add(box(1.4, 1.2, 0.09, glassMat, wx, h * 0.6, d / 2 + 0.06));
+    }
+
+    // Floating text label via canvas sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 128;
+    const ctx2 = canvas.getContext('2d')!;
+    // Background pill
+    ctx2.fillStyle = `#${accentColor.toString(16).padStart(6, '0')}cc`;
+    ctx2.beginPath();
+    ctx2.roundRect(8, 8, 496, 112, 20);
+    ctx2.fill();
+    // Text
+    ctx2.fillStyle = '#ffffff';
+    ctx2.font = 'bold 64px Arial, sans-serif';
+    ctx2.textAlign = 'center';
+    ctx2.textBaseline = 'middle';
+    ctx2.fillText(label, 256, 64);
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(6, 1.5, 1);
+    sprite.position.set(0, h + 2.2, 0);
+    g.add(sprite);
+
+    g.position.set(cx, 0, cz);
+    return g;
+  }
+
+  // ── Company buildings (all clear of main road z=11–25) ──────
+
+  // TOYOTA — north-east corner, very large red-accent campus
+  // Main hall
+  scene.add(createCompanyBuilding(62, 56, 34, 12, 20, 0xdce4ec, 0x222222, 'Toyota', 0xcc1111));
+  // Side annex
+  {
+    const annexMat = new THREE.MeshStandardMaterial({ color: 0xc8d0d8, roughness: 0.5 });
+    const roofMat  = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
+    scene.add(box(16, 8, 14, annexMat, 84, 4, 56));
+    scene.add(box(16.4, 0.4, 14.4, roofMat, 84, 8.2, 56));
+  }
+  // Parking pad
+  scene.add(box(50, 0.15, 10, new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.9 }), 68, 0.08, 39));
+  // Trees around Toyota
+  scene.add(createTree(42, 50, 1.2)); scene.add(createTree(90, 50, 1.1));
+  scene.add(createTree(44, 62, 1.0)); scene.add(createTree(90, 62, 1.3));
+  scene.add(createTree(62, 70, 0.9));
+
+  // DAIHATSU — north-west, large orange-accent
+  scene.add(createCompanyBuilding(-28, 54, 30, 11, 18, 0xeee8dc, 0x333322, 'Daihatsu', 0xdd6600));
+  // Annex
+  {
+    const aM = new THREE.MeshStandardMaterial({ color: 0xe0dcd0, roughness: 0.5 });
+    const rM = new THREE.MeshStandardMaterial({ color: 0x333322, roughness: 0.6 });
+    scene.add(box(14, 7, 13, aM, -50, 3.5, 54));
+    scene.add(box(14.4, 0.4, 13.4, rM, -50, 7.2, 54));
+  }
+  scene.add(box(44, 0.15, 9, new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.9 }), -30, 0.08, 41));
+  scene.add(createTree(-10, 50, 1.1)); scene.add(createTree(-50, 48, 1.2));
+  scene.add(createTree(-12, 62, 1.0)); scene.add(createTree(-50, 62, 1.0));
+  scene.add(createTree(-30, 68, 1.3));
+
+  // UDSO — far east, north of road (z=46 >> road ends at z=25), green-accent
+  // Building spans z=46±9 = z37–55, x=75±13 = x62–88 → no road conflict
+  scene.add(createCompanyBuilding(75, 46, 26, 10, 18, 0xe0ece0, 0x223322, 'UDSO', 0x229944));
+  // Annex
+  {
+    const aM = new THREE.MeshStandardMaterial({ color: 0xd4e4d4, roughness: 0.5 });
+    scene.add(box(13, 7, 12, aM, 96, 3.5, 46));
+    scene.add(box(13.4, 0.4, 12.4, new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.6 }), 96, 7.2, 46));
+  }
+  scene.add(box(30, 0.15, 8, new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.9 }), 80, 0.08, 34));
+  scene.add(createTree(62, 40, 1.1)); scene.add(createTree(100, 42, 1.0));
+  scene.add(createTree(64, 54, 1.2)); scene.add(createTree(100, 56, 1.1));
+
+  // ISO 9001 — far west, blue-accent, south of warehouse
+  scene.add(createCompanyBuilding(-62, -5, 28, 10, 17, 0xdce4f0, 0x223344, 'ISO 9001', 0x1155aa));
+  // Annex
+  {
+    const aM = new THREE.MeshStandardMaterial({ color: 0xd0d8e8, roughness: 0.5 });
+    scene.add(box(13, 7, 12, aM, -62, 3.5, 14));
+    scene.add(box(13.4, 0.4, 12.4, new THREE.MeshStandardMaterial({ color: 0x223344, roughness: 0.6 }), -62, 7.2, 14));
+  }
+  scene.add(box(32, 0.15, 8, new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.9 }), -50, 0.08, -12));
+  scene.add(createTree(-46, -8, 1.0)); scene.add(createTree(-78, -8, 1.2));
+  scene.add(createTree(-46, 8, 1.1));  scene.add(createTree(-78, 6, 1.0));
+
+  // ============================================
   // DISTRIBUTOR RECEIVING FACILITY (north, z ~ -86)
   // ============================================
 
@@ -1216,20 +1340,22 @@ export function initScene3D(): () => void {
       worker1.rightLeg.rotation.x = -Math.sin(t * 3.5) * 0.35;
       worker1.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.05;
     }
-    // Stage 2 (Picking): worker1 picks from RIGHT rack, walks west toward outbound staging
+    // Stage 2 (Picking): worker1 tanpa barang, berjalan dari rak kanan ke rak kiri (sebrang) untuk ambil paket
     else if (stageIdx === 2) {
-      // Slightly east of hero (rack side), facing west toward outbound door
-      worker1.group.position.set(hero.x + 1.5, 0, hero.z + 1.0);
-      worker1.group.rotation.y = Math.PI / 2; // faces WEST (-x), toward outbound
+      // Worker di aisle tengah (x~12), bergerak dari kanan (x=20) ke kiri (x=4) mengikuti hero
+      // hero.x turun dari 22→8, worker offset ke sisi kiri (lebih kecil dari hero.x)
+      worker1.group.position.set(hero.x - 4, 0, hero.z + 0.8);
+      // Hadap ke rak kiri (x=3) = menghadap barat (-x)
+      worker1.group.rotation.y = Math.PI / 2;
       worker1.scanner.visible = true;
-      worker1.carryCrate.visible = true;
-      // Arms out carrying + scanner
-      worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 1.8) * 0.12;
-      worker1.leftArm.rotation.x = -0.9 + Math.sin(t * 1.5) * 0.1;
-      // Walk cycle toward staging area
-      worker1.leftLeg.rotation.x = Math.sin(t * 2.8) * 0.28;
-      worker1.rightLeg.rotation.x = -Math.sin(t * 2.8) * 0.28;
-      worker1.group.position.y = Math.abs(Math.sin(t * 2.8)) * 0.04;
+      worker1.carryCrate.visible = false; // tangan kosong, belum ambil barang
+      // Tangan kanan angkat scanner, tangan kiri natural swing
+      worker1.rightArm.rotation.x = -1.5 + Math.sin(t * 1.1) * 0.25; // scanner terarah ke rak
+      worker1.leftArm.rotation.x = -0.3 + Math.sin(t * 0.9 + 1.0) * 0.15;
+      // Walk cycle — agak lambat (scanning sambil jalan)
+      worker1.leftLeg.rotation.x = Math.sin(t * 2.4) * 0.30;
+      worker1.rightLeg.rotation.x = -Math.sin(t * 2.4) * 0.30;
+      worker1.group.position.y = Math.abs(Math.sin(t * 2.4)) * 0.04;
     }
     // Stage 3 (Outbound): worker2 loads boxes onto truck at dock
     else if (stageIdx === 3) {
