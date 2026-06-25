@@ -190,6 +190,35 @@ export function initScene3D(): () => void {
   });
 
   // ============================================
+  // NIGHT MODE STATE
+  // ============================================
+  let nightMode = false;
+  let nightT = 0; // 0 = day, 1 = night (smoothly lerped each frame)
+
+  // Warehouse roof materials for opacity animation (fade out stages 1/2, back on stage 3+)
+  const warehouseRoofMats: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
+  let warehouseRoofOpacity = 1.0; // current lerped opacity multiplier
+
+  // Lamp PointLights injected into street lamps (off by day, on by night)
+  const lampLights: THREE.PointLight[] = [];
+  // Lamp glass materials — emissiveIntensity updated with nightT
+  const lampGlassMats: THREE.MeshStandardMaterial[] = [];
+
+  // Warehouse ceiling PointLights (off by day, on by night — warm white)
+  const warehouseLights: THREE.PointLight[] = [];
+  const ceilingPositions = [
+    [5, 8, 12], [14, 8, 12], [22, 8, 12],
+    [5, 8,  1], [14, 8,  1], [22, 8,  1],
+    [5, 8, -8], [14, 8, -8], [22, 8, -8],
+  ];
+  for (const [cx, cy, cz] of ceilingPositions) {
+    const wl = new THREE.PointLight(0xfff0d0, 0, 22, 1.4);
+    wl.position.set(cx, cy, cz);
+    scene.add(wl);
+    warehouseLights.push(wl);
+  }
+
+  // ============================================
   // LIGHTING
   // ============================================
 
@@ -353,7 +382,22 @@ export function initScene3D(): () => void {
   scene.add(box(2,  5.5, 0.5, matWall, 26,   2.75, 10)); // right pier x=25..27
   scene.add(box(0.5, 12, 16, matWall, 27, 6, 2));           // east wall (x=27)
   scene.add(box(0.5, 12, 16, matWall, -11, 6, 2));          // west wall (x=-11)
-  scene.add(box(38, 0.4, 16, matWall, 8, 12, 2));           // ceiling
+  // ── Warehouse ceiling + roof — stored for opacity animation ──
+  {
+    const ceilMat = matWall.clone() as THREE.MeshStandardMaterial;
+    ceilMat.transparent = true; ceilMat.opacity = 1;
+    warehouseRoofMats.push({ mat: ceilMat, base: 1 });
+    scene.add(box(38, 0.4, 16, ceilMat, 8, 12, 2));          // ceiling
+
+    const outerRoofMat = mat.roof.clone() as THREE.MeshStandardMaterial;
+    warehouseRoofMats.push({ mat: outerRoofMat, base: 0.25 });
+    scene.add(box(39, 0.6, 17, outerRoofMat, 8, 12.3, 2));   // outer roof
+
+    const bandMat = mat.metalDark.clone() as THREE.MeshStandardMaterial;
+    bandMat.transparent = true; bandMat.opacity = 1;
+    warehouseRoofMats.push({ mat: bandMat, base: 1 });
+    scene.add(box(39, 2, 0.5, bandMat, 8, 13.2, 2));         // roof fascia band
+  }
   scene.add(box(38, 0.3, 16, mat.buildingDark, 8, 0.15, 2)); // interior floor
   // North wall — segmented (door openings at x=1,7,13,19, each 4-unit wide, h=5.5)
   scene.add(box(38, 6.5, 0.5, matWall, 8, 9.25, -6));      // top strip above all doors
@@ -362,8 +406,6 @@ export function initScene3D(): () => void {
   scene.add(box(2,  5.5, 0.5, matWall, 10, 2.75, -6));     // pier between door2 & door3 (x=9..11)
   scene.add(box(2,  5.5, 0.5, matWall, 16, 2.75, -6));     // pier between door3 & door4 (x=15..17)
   scene.add(box(6,  5.5, 0.5, matWall, 24, 2.75, -6));     // right pier x=21..27
-  scene.add(box(39, 0.6, 17, mat.roof, 8, 12.3, 2));
-  scene.add(box(39, 2, 0.5, mat.metalDark, 8, 13.2, 2));
   // High-band windows — outside new 0.5-thick wall faces (north: z=-6.4, south: z=10.4)
   for (let i = -10; i <= 26; i += 4) {
     scene.add(box(2.5, 3, 0.1, mat.glass, i, 8.5, -6.4));  // north face exterior
@@ -531,13 +573,17 @@ export function initScene3D(): () => void {
     g.add(box(1.6, 0.1, 0.1, mat.metalDark, 0.8, 6.1, 0));
     // Lamp head
     g.add(box(0.75, 0.25, 0.55, mat.metalDark, 1.6, 5.9, 0));
-    // Lamp glass (warm yellow)
-    const lampGlass = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.12, 0.38),
-      new THREE.MeshStandardMaterial({ color: 0xffe580, emissive: 0xffcc44, emissiveIntensity: 1.2, transparent: true, opacity: 0.9 })
-    );
+    // Lamp glass — emissive intensity driven by nightT in animate loop
+    const lampGlassMat = new THREE.MeshStandardMaterial({ color: 0xffe580, emissive: 0xffcc44, emissiveIntensity: 0.1, transparent: true, opacity: 0.9 });
+    const lampGlass = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.38), lampGlassMat);
     lampGlass.position.set(1.6, 5.82, 0);
     g.add(lampGlass);
+    lampGlassMats.push(lampGlassMat);
+    // PointLight for night illumination (off by default)
+    const lampPt = new THREE.PointLight(0xffd080, 0, 20, 2);
+    lampPt.position.set(1.6, 5.8, 0); // local space — rotates with group
+    g.add(lampPt);
+    lampLights.push(lampPt);
     g.position.set(tx, 0, tz);
     g.rotation.y = rotY;
     return g;
@@ -781,7 +827,8 @@ export function initScene3D(): () => void {
     [
       [-30, -20, 1.2], [-33, -15, 0.9], [-30, -8, 1.1], [-32, 0, 1.0], [-30, 8, 1.3],
       [-33, 15, 0.8], [-30, 22, 1.1], [30, -3, 0.9], [33, 5, 1.1], [30, 13, 1.0],
-      [32, 20, 1.3], [-10, 25, 0.9], [0, 27, 1.1], [10, 25, 1.0], [20, 26, 0.8],
+      [32, 20, 1.3],
+      // trees z=25-27 removed — they were inside the road zone
       // line the highway to the distributor
       [-2, -30, 1.0], [18, -34, 0.9], [-2, -50, 1.1], [18, -54, 1.0], [-2, -70, 0.9], [18, -74, 1.1],
     ] as Array<[number, number, number]>
@@ -1149,10 +1196,25 @@ export function initScene3D(): () => void {
     // --- Hero pallet position ---
     const hero = heroAt(p);
     heroVec.set(hero.x, hero.y, hero.z);
-    heroPallet.position.set(hero.x, hero.y, hero.z);
     heroPallet.rotation.y = Math.sin(t * 0.3) * 0.04;
-    // Stage 0 approach: sembunyikan hero pallet sampai truck benar-benar parkir
-    heroPallet.visible = !(stageIndexAt(p) === 0 && p * STAGE_COUNT < 0.62);
+    // Stage 2 (Picking): pallet di muka rak kiri (x=3) — bukan di dalam rak
+    if (stageIndexAt(p) === 2) {
+      const sp2 = p * STAGE_COUNT - 2;
+      const PICK_T = 0.45;
+      if (sp2 < PICK_T) {
+        // Phase A: pallet diam di muka rak kiri, ujung row (z=-2)
+        heroPallet.position.set(3, 1.25, -2);
+      } else {
+        // Phase B: worker membawa — ikut posisi worker (x=5.5, z=-2→-7.5)
+        const bt = (sp2 - PICK_T) / (1 - PICK_T);
+        heroPallet.position.set(5.5, 1.25, -2 - bt * 5.5 + 0.3);
+      }
+      heroPallet.visible = true;
+    } else {
+      heroPallet.position.set(hero.x, hero.y, hero.z);
+      // Stage 0 approach: sembunyikan hero pallet sampai truck benar-benar parkir
+      heroPallet.visible = !(stageIndexAt(p) === 0 && p * STAGE_COUNT < 0.62);
+    }
 
     // --- Shipment truck ---
     const transitStart = 4 / STAGE_COUNT; // stage 4 (transit)
@@ -1237,6 +1299,25 @@ export function initScene3D(): () => void {
       // s0c >= BLEND_END: targetCamPos/targetLookAt sudah di-set ke hero di atas — tidak diubah lagi
     }
 
+    // ── Stage 2 override: kamera ikut worker di lorong (x=5.5) ──
+    if (stageIndexAt(p) === 2) {
+      const sp2 = p * STAGE_COUNT - 2;
+      const PICK_T = 0.45;
+
+      if (sp2 < PICK_T) {
+        // Phase A: worker diam di x=5.5, z=-2 (ujung rak)
+        // kamera dari timur-selatan, lihat ke worker + rak kiri
+        targetCamPos.set(11, 4.0, 3.5);
+        targetLookAt.set(3, 1.0, -2.5);
+      } else {
+        // Phase B: worker jalan ke selatan dari z=-2 ke z=-7.5
+        const bt = (sp2 - PICK_T) / (1 - PICK_T);
+        const workerZ = -2 - bt * 5.5;
+        targetCamPos.set(5.5 + 4, 4.5, workerZ + 6);
+        targetLookAt.set(5.5, 1.2, workerZ - 1.5);
+      }
+    }
+
     // Apply interactive orbit + zoom (always run — default orbitZoom=2.0 keeps camera further back)
     {
       const toCamera = new THREE.Vector3().subVectors(targetCamPos, targetLookAt);
@@ -1265,6 +1346,47 @@ export function initScene3D(): () => void {
     }
     targetFog = STAGES[stageIdx].fogDensity;
     fog.density += (targetFog - fog.density) * 0.04;
+
+    // --- Warehouse roof: fade out saat dalam gudang (stages 1/2), kembali di stage 3+ ---
+    {
+      const roofTarget = (stageIdx === 1 || stageIdx === 2) ? 0 : 1;
+      warehouseRoofOpacity += (roofTarget - warehouseRoofOpacity) * 0.04;
+      warehouseRoofMats.forEach(({ mat: m, base }) => { m.opacity = warehouseRoofOpacity * base; });
+    }
+
+    // --- Night/Day mode transition ---
+    {
+      const nightTarget = nightMode ? 1 : 0;
+      nightT += (nightTarget - nightT) * 0.025; // ~3s transition
+      // Smootherstep for nicer easing
+      const n = nightT * nightT * nightT * (nightT * (nightT * 6 - 15) + 10);
+
+      // Sky color: day blue → deep night
+      (scene.background as THREE.Color).setHex(0x87ceeb).lerp(new THREE.Color(0x05091a), n);
+
+      // Fog color
+      fog.color.setHex(0xb8d5e8).lerp(new THREE.Color(0x020408), n);
+
+      // Ambient: warm day → dim cool night
+      ambientLight.intensity = 2.2 - n * 1.85;
+      ambientLight.color.setHex(0xffe8c0).lerp(new THREE.Color(0x1a2448), n);
+
+      // Sun: dim to near-zero at night
+      sunLight.intensity = 3.0 - n * 2.85;
+
+      // Fill + rim lights: dim at night
+      fillLight.intensity = 0.6 - n * 0.55;
+      rimLight.intensity  = 0.3 - n * 0.28;
+
+      // Street lamp PointLights: off by day, warm amber glow at night
+      lampLights.forEach((lp) => { lp.intensity = n * 3.2; });
+
+      // Street lamp glass emissive: dim by day, bright glow at night
+      lampGlassMats.forEach((gm) => { gm.emissiveIntensity = 0.1 + n * 2.8; });
+
+      // Warehouse ceiling lights: off by day, soft warm white at night
+      warehouseLights.forEach((wl) => { wl.intensity = n * 4.8; });
+    }
 
     // --- Scene opacity ---
     sceneOpacity += (targetOpacity - sceneOpacity) * 0.05;
@@ -1325,37 +1447,70 @@ export function initScene3D(): () => void {
       // Bob slightly
       worker1.group.position.y = Math.sin(t * 1.8) * 0.02;
     }
-    // Stage 1 (Putaway): worker1 carries box east to RIGHT rack (x=22)
+    // Stage 1 (Putaway):
+    //   Phase A (sp<0.65): bawa krate ke rak kanan
+    //   Phase B (sp>=0.65): kembali kosong ke rak kiri (sebrang)
     else if (stageIdx === 1) {
-      // Slightly behind hero (west side), facing east toward right rack
-      worker1.group.position.set(hero.x - 1.2, 0, hero.z + 1.2);
-      worker1.group.rotation.y = -Math.PI / 2; // faces EAST (+x), direction of travel
-      worker1.scanner.visible = false;
-      worker1.carryCrate.visible = true;
-      // Arms up carrying crate
-      worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 2) * 0.05;
-      worker1.leftArm.rotation.x = -1.3 + Math.sin(t * 2 + 0.5) * 0.05;
-      // Walk cycle
-      worker1.leftLeg.rotation.x = Math.sin(t * 3.5) * 0.35;
-      worker1.rightLeg.rotation.x = -Math.sin(t * 3.5) * 0.35;
-      worker1.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.05;
+      const sp1 = (p * STAGE_COUNT) - 1; // 0→1 within stage 1
+      const PLACE_T = 0.65;
+      if (sp1 < PLACE_T) {
+        worker1.group.position.set(hero.x - 1.2, 0, hero.z + 1.2);
+        worker1.group.rotation.y = -Math.PI / 2; // hadap timur (ke rak kanan)
+        worker1.scanner.visible = false;
+        worker1.carryCrate.visible = true;
+        worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 2) * 0.05;
+        worker1.leftArm.rotation.x = -1.3 + Math.sin(t * 2 + 0.5) * 0.05;
+        worker1.leftLeg.rotation.x = Math.sin(t * 3.5) * 0.35;
+        worker1.rightLeg.rotation.x = -Math.sin(t * 3.5) * 0.35;
+        worker1.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.05;
+      } else {
+        // Setelah naruh di rak kanan → jalan kosong ke rak kiri
+        const bt = (sp1 - PLACE_T) / (1 - PLACE_T); // 0→1
+        const walkX = 22 - bt * 19; // 22 → 3
+        worker1.group.position.set(walkX, 0, hero.z + 1.2);
+        worker1.group.rotation.y = Math.PI / 2; // hadap barat (ke rak kiri)
+        worker1.scanner.visible = false;
+        worker1.carryCrate.visible = false;
+        worker1.rightArm.rotation.x = Math.sin(t * 3.2) * 0.35;
+        worker1.leftArm.rotation.x = -Math.sin(t * 3.2) * 0.35;
+        worker1.leftLeg.rotation.x = Math.sin(t * 3.2) * 0.35;
+        worker1.rightLeg.rotation.x = -Math.sin(t * 3.2) * 0.35;
+        worker1.group.position.y = Math.abs(Math.sin(t * 3.2)) * 0.05;
+      }
     }
-    // Stage 2 (Picking): worker1 tanpa barang, berjalan dari rak kanan ke rak kiri (sebrang) untuk ambil paket
+    // Stage 2 (Picking):
+    //   Worker di lorong samping rak kiri (x=5.5 — aisle, bukan di dalam rak x=3)
+    //   Phase A (sp<0.45): diam di ujung rak (z=-2), scan menghadap rak
+    //   Phase B (sp>=0.45): bawa paket lurus ke selatan z=-2→-7.5 (mandiri, tidak ikut hero.x)
     else if (stageIdx === 2) {
-      // Worker di aisle tengah (x~12), bergerak dari kanan (x=20) ke kiri (x=4) mengikuti hero
-      // hero.x turun dari 22→8, worker offset ke sisi kiri (lebih kecil dari hero.x)
-      worker1.group.position.set(hero.x - 4, 0, hero.z + 0.8);
-      // Hadap ke rak kiri (x=3) = menghadap barat (-x)
-      worker1.group.rotation.y = Math.PI / 2;
-      worker1.scanner.visible = true;
-      worker1.carryCrate.visible = false; // tangan kosong, belum ambil barang
-      // Tangan kanan angkat scanner, tangan kiri natural swing
-      worker1.rightArm.rotation.x = -1.5 + Math.sin(t * 1.1) * 0.25; // scanner terarah ke rak
-      worker1.leftArm.rotation.x = -0.3 + Math.sin(t * 0.9 + 1.0) * 0.15;
-      // Walk cycle — agak lambat (scanning sambil jalan)
-      worker1.leftLeg.rotation.x = Math.sin(t * 2.4) * 0.30;
-      worker1.rightLeg.rotation.x = -Math.sin(t * 2.4) * 0.30;
-      worker1.group.position.y = Math.abs(Math.sin(t * 2.4)) * 0.04;
+      const sp2 = (p * STAGE_COUNT) - 2;
+      const PICK_T = 0.45;
+      const WORKER_X = 5.5; // aisle — di luar rack uprights (x=1.5..4.5)
+      if (sp2 < PICK_T) {
+        // Phase A: di ujung rak kiri, scanning menghadap barat (ke rak)
+        worker1.group.position.set(WORKER_X, 0, -2);
+        worker1.group.rotation.y = Math.PI / 2; // hadap barat
+        worker1.scanner.visible = true;
+        worker1.carryCrate.visible = false;
+        worker1.rightArm.rotation.x = -1.5 + Math.sin(t * 1.1) * 0.25;
+        worker1.leftArm.rotation.x = -0.3 + Math.sin(t * 0.9) * 0.15;
+        worker1.leftLeg.rotation.x = 0;
+        worker1.rightLeg.rotation.x = 0;
+        worker1.group.position.y = Math.sin(t * 1.5) * 0.02;
+      } else {
+        // Phase B: bawa paket lurus ke selatan (menuju outbound gate di z=-8)
+        const bt = (sp2 - PICK_T) / (1 - PICK_T); // 0→1
+        const workerZ = -2 - bt * 5.5; // -2 → -7.5
+        worker1.group.position.set(WORKER_X, 0, workerZ);
+        worker1.group.rotation.y = Math.PI; // hadap selatan
+        worker1.scanner.visible = false;
+        worker1.carryCrate.visible = true;
+        worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 2) * 0.05;
+        worker1.leftArm.rotation.x = -1.3 + Math.sin(t * 2 + 0.5) * 0.05;
+        worker1.leftLeg.rotation.x = Math.sin(t * 3.2) * 0.32;
+        worker1.rightLeg.rotation.x = -Math.sin(t * 3.2) * 0.32;
+        worker1.group.position.y = Math.abs(Math.sin(t * 3.2)) * 0.05;
+      }
     }
     // Stage 3 (Outbound): worker2 loads boxes onto truck at dock
     else if (stageIdx === 3) {
@@ -1405,12 +1560,30 @@ export function initScene3D(): () => void {
       worker1.carryCrate.visible = false;
     }
 
-    // --- Stage 1: storage scan + highlight + forklift ---
-    if (stageIdx === 1 || stageIdx === 2) {
-      forklift.position.set(hero.x - 0.2, 0, hero.z + 2.6);
-      forklift.rotation.y = Math.PI;
-    } else {
-      forklift.position.set(0, -60, 0);
+    // --- Forklift positioning: matches worker two-phase logic ---
+    {
+      const sp1 = (p * STAGE_COUNT) - 1;
+      const sp2 = (p * STAGE_COUNT) - 2;
+      const PLACE_T = 0.65;
+      const PICK_T  = 0.45;
+      if (stageIdx === 1 && sp1 < PLACE_T) {
+        // Phase A: ikut hero ke rak kanan
+        forklift.position.set(hero.x - 0.2, 0, hero.z + 2.6);
+        forklift.rotation.y = Math.PI;
+      } else if (stageIdx === 1 && sp1 >= PLACE_T) {
+        // Phase B: balik kosong ke rak kiri
+        const bt = (sp1 - PLACE_T) / (1 - PLACE_T);
+        const forkX = 22 - bt * 19; // 22 → 3
+        forklift.position.set(forkX, 0, hero.z + 2.6);
+        forklift.rotation.y = 0; // hadap utara/kiri saat balik
+      } else if (stageIdx === 2 && sp2 < PICK_T) {
+        // Phase A: parkir di rak kiri saat worker picking
+        forklift.position.set(4, 0, hero.z + 2.6);
+        forklift.rotation.y = Math.PI;
+      } else {
+        // Stage 2 phase B + semua stage lain: hidden
+        forklift.position.set(0, -60, 0);
+      }
     }
     if (stageIdx === 1) {
       scanPlaneMat.opacity += (0.05 - scanPlaneMat.opacity) * 0.05;
@@ -1508,6 +1681,24 @@ export function initScene3D(): () => void {
   };
   window.addEventListener('resize', onResize);
 
+  // ============================================
+  // NIGHT/DAY TOGGLE BUTTON (injected into DOM)
+  // ============================================
+  const nightBtn = document.createElement('button');
+  nightBtn.id = 'night-toggle-btn';
+  nightBtn.setAttribute('aria-label', 'Toggle night mode');
+  const moonSvg = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/></svg>`;
+  const sunSvg  = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+  nightBtn.innerHTML = moonSvg;
+  const onNightToggle = () => {
+    nightMode = !nightMode;
+    nightBtn.innerHTML = nightMode ? sunSvg : moonSvg;
+    nightBtn.setAttribute('aria-label', nightMode ? 'Switch to day mode' : 'Switch to night mode');
+  };
+  nightBtn.addEventListener('click', onNightToggle);
+  const stickyEl = document.querySelector('.immersive__sticky');
+  if (stickyEl) stickyEl.appendChild(nightBtn);
+
   animate();
 
   // ============================================
@@ -1516,6 +1707,8 @@ export function initScene3D(): () => void {
 
   return () => {
     cancelAnimationFrame(rafId);
+    nightBtn.removeEventListener('click', onNightToggle);
+    nightBtn.remove();
     window.removeEventListener('resize', onResize);
     window.removeEventListener('mousedown', onMouseDown);
     window.removeEventListener('mousemove', onMouseMove);
