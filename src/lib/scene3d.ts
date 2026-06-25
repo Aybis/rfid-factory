@@ -473,16 +473,7 @@ export function initScene3D(): () => void {
   scene.add(box(0.2, 3.0, 0.2, mat.metalDark, -2, 1.5, 25));  // post near tree x=0,z=27
   scene.add(box(0.8, 0.3, 0.4, mat.door, -2, 3.1, 25));        // reader head
 
-  // Truck lane clear — no obstructions
-
-  // Freight crates staged at inbound receiving bay
-  scene.add(box(1.5, 1.0, 1.2, mat.crate, 18, 0.9, 15));
-  scene.add(box(1.5, 1.0, 1.2, mat.crate, 18, 2.0, 15));
-  scene.add(box(0.5, 0.3, 0.04, mat.crateTag, 18, 0.95, 14.35));
-  scene.add(box(1.3, 0.9, 1.1, mat.crate, 19.8, 0.8, 16.5));
-  scene.add(box(1.5, 1.0, 1.2, mat.crate, -1, 0.9, 15));
-  scene.add(box(0.5, 0.3, 0.04, mat.crateTag, -1, 0.95, 14.35));
-  scene.add(box(1.3, 0.9, 1.1, mat.crate, -2.5, 0.8, 16.5));
+  // Truck lane clear — static dock crates dihapus (digantikan oleh dockCratesGroup + inboundHeroPallet)
 
   // Street lamps — roadside on grass edge (z=27), arm faces road (rotY=PI/2)
   scene.add(createStreetLamp(-20, 27, Math.PI / 2));
@@ -508,19 +499,9 @@ export function initScene3D(): () => void {
   dish.rotation.x = -0.4;
   scene.add(dish);
 
-  // Conveyor Belt — inside warehouse near south dock wall (x:2..22, z:8)
-  scene.add(box(20, 0.3, 2, mat.conveyor, 12, 1.2, 8));
-  scene.add(box(19, 0.08, 1.6, mat.belt, 12, 1.38, 8));
-  for (let i = 4; i <= 20; i += 4) {
-    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 7.2));
-    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 8.8));
-  }
-  [4, 8, 12, 16, 20].forEach((bx) => {
-    scene.add(box(1.2, 1, 1, mat.crate, bx, 2, 8));
-    scene.add(box(0.5, 0.3, 0.04, mat.crateTag, bx, 2.2, 7.46));
-  });
+  // Interior conveyor dihapus — tengah gudang kosong sebagai aisle
 
-  // Pallet Racks — 3 columns fully inside wider warehouse (x: -11 to 27)
+  // Pallet Racks — kiri (x=3) dan kanan (x=22) saja, tengah lowong untuk forklift
   function createRack(rx: number, rz: number): THREE.Group {
     const g = new THREE.Group();
     g.add(box(0.18, 6, 0.18, mat.metalDark, -1.5, 3, 0));   // left upright
@@ -533,13 +514,10 @@ export function initScene3D(): () => void {
     g.position.set(rx, 0, rz);
     return g;
   }
-  // Left column (x=3, poles 1.5/4.5 — well inside x=-11..27)
-  // Middle column (x=13, poles 11.5/14.5)
-  // Right column (x=22, poles 20.5/23.5 — inside x=27)
-  for (let z = -4; z <= 5; z += 3) {   // stop at z=5 — gap before conveyor at z=8
-    scene.add(createRack(3, z));
-    scene.add(createRack(13, z));
-    scene.add(createRack(22, z));
+  // Kiri (x=3) dan Kanan (x=22) — tengah warehouse kosong
+  for (let z = -5; z <= 7; z += 3) {
+    scene.add(createRack(3, z));   // rak kiri
+    scene.add(createRack(22, z));  // rak kanan
   }
 
   // Antenna Towers
@@ -1049,6 +1027,8 @@ export function initScene3D(): () => void {
     heroVec.set(hero.x, hero.y, hero.z);
     heroPallet.position.set(hero.x, hero.y, hero.z);
     heroPallet.rotation.y = Math.sin(t * 0.3) * 0.04;
+    // Stage 0 approach: sembunyikan hero pallet sampai truck benar-benar parkir
+    heroPallet.visible = !(stageIndexAt(p) === 0 && p * STAGE_COUNT < 0.62);
 
     // --- Shipment truck ---
     const transitStart = 4 / STAGE_COUNT; // stage 4 (transit)
@@ -1221,11 +1201,11 @@ export function initScene3D(): () => void {
       // Bob slightly
       worker1.group.position.y = Math.sin(t * 1.8) * 0.02;
     }
-    // Stage 1 (Putaway): worker1 carries box from receiving to rack
+    // Stage 1 (Putaway): worker1 carries box east to RIGHT rack (x=22)
     else if (stageIdx === 1) {
-      // Follow hero path toward rack with slight offset
-      worker1.group.position.set(hero.x - 2, 0, hero.z + 1.5);
-      worker1.group.rotation.y = Math.PI * 0.1;
+      // Slightly behind hero (west side), facing east toward right rack
+      worker1.group.position.set(hero.x - 1.2, 0, hero.z + 1.2);
+      worker1.group.rotation.y = -Math.PI / 2; // faces EAST (+x), direction of travel
       worker1.scanner.visible = false;
       worker1.carryCrate.visible = true;
       // Arms up carrying crate
@@ -1236,16 +1216,17 @@ export function initScene3D(): () => void {
       worker1.rightLeg.rotation.x = -Math.sin(t * 3.5) * 0.35;
       worker1.group.position.y = Math.abs(Math.sin(t * 3.5)) * 0.05;
     }
-    // Stage 2 (Picking): worker1 at rack reaching for item
+    // Stage 2 (Picking): worker1 picks from RIGHT rack, walks west toward outbound staging
     else if (stageIdx === 2) {
-      worker1.group.position.set(hero.x + 2, 0, hero.z - 0.5);
-      worker1.group.rotation.y = Math.PI * 1.1;
+      // Slightly east of hero (rack side), facing west toward outbound door
+      worker1.group.position.set(hero.x + 1.5, 0, hero.z + 1.0);
+      worker1.group.rotation.y = Math.PI / 2; // faces WEST (-x), toward outbound
       worker1.scanner.visible = true;
-      worker1.carryCrate.visible = false;
-      // Reaching up to rack
-      worker1.rightArm.rotation.x = -1.6 + Math.sin(t * 1.0) * 0.2;
-      worker1.leftArm.rotation.x = -0.5 + Math.sin(t * 0.8) * 0.1;
-      // Walk toward staging
+      worker1.carryCrate.visible = true;
+      // Arms out carrying + scanner
+      worker1.rightArm.rotation.x = -1.3 + Math.sin(t * 1.8) * 0.12;
+      worker1.leftArm.rotation.x = -0.9 + Math.sin(t * 1.5) * 0.1;
+      // Walk cycle toward staging area
       worker1.leftLeg.rotation.x = Math.sin(t * 2.8) * 0.28;
       worker1.rightLeg.rotation.x = -Math.sin(t * 2.8) * 0.28;
       worker1.group.position.y = Math.abs(Math.sin(t * 2.8)) * 0.04;

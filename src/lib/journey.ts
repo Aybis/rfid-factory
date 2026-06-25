@@ -47,7 +47,7 @@ export const STAGE_COUNT = 6;
 export const WAYPOINTS: Vec3[] = [
   { x: 9, y: 1.6, z: 18 }, // 0  start: on dock conveyor at truck parking zone (z=18)
   { x: 8, y: 1.6, z: 11 }, // 1  end inbound: through south gates into warehouse
-  { x: 16, y: 2.4, z: 2 }, // 2  end storage: placed on rack
+  { x: 22, y: 2.4, z: 2 }, // 2  end storage: placed on RIGHT rack
   { x: 8, y: 1.6, z: -5 }, // 3  end picking: at staging
   { x: 8, y: 2.6, z: -15 }, // 4  end outbound: on truck bed at dock
   { x: 8, y: 2.6, z: -78 }, // 5  end transit: truck at distributor
