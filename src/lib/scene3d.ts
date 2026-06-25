@@ -351,7 +351,13 @@ export function initScene3D(): () => void {
 
   scene.add(box(55, 0.2, 45, mat.groundPad, 0, 0, 0));
 
-  scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, -12));
+  // Outbound north road — widened for truck loading bays (z=-10 to z=-22)
+  scene.add(box(55, 0.25, 12, mat.road, 0, 0.05, -16));
+  // Concrete apron between warehouse door (z=-6.4) and road edge (z=-10) — staging gap
+  scene.add(box(26, 0.15, 3.4, mat.groundPad, 10, 0.13, -8.2));
+  // Outbound road edge lines
+  scene.add(box(55, 0.02, 0.2, mat.roadMark, 0, 0.28, -10.2));  // warehouse-side edge
+  scene.add(box(55, 0.02, 0.2, mat.roadMark, 0, 0.28, -21.8));  // outer edge
   scene.add(box(3, 0.25, 45, mat.road, -15, 0.05, 0));
   // South inbound road — diperpanjang ke timur agar truck x=60 tetap di aspal
   scene.add(box(100, 0.25, 14, mat.road, 12, 0.05, 18));
@@ -361,7 +367,7 @@ export function initScene3D(): () => void {
   // Centre dashed line (extended to x=58)
   for (let i = -38; i <= 58; i += 4) {
     scene.add(box(1.8, 0.02, 0.25, mat.roadMark, i, 0.28, 18));
-    scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, -12));
+    scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, -16));
   }
 
   // Highway to the distributor (runs north along x=8)
@@ -804,9 +810,9 @@ export function initScene3D(): () => void {
   scene.add(hubWorker.group);
 
   // Guard Booth
-  scene.add(box(3, 3, 3, mat.building, -25, 1.5, -12));
-  scene.add(box(3.5, 0.3, 3.5, mat.roof, -25, 3.15, -12));
-  scene.add(box(2, 1.5, 0.1, mat.glass, -25, 2, -13.55));
+  scene.add(box(3, 3, 3, mat.building, -25, 1.5, -16));
+  scene.add(box(3.5, 0.3, 3.5, mat.roof, -25, 3.15, -16));
+  scene.add(box(2, 1.5, 0.1, mat.glass, -25, 2, -17.55));
 
   // Trees
   function createTree(tx: number, tz: number, s: number): THREE.Group {
@@ -826,8 +832,8 @@ export function initScene3D(): () => void {
   (
     [
       [-30, -20, 1.2], [-33, -15, 0.9], [-30, -8, 1.1], [-32, 0, 1.0], [-30, 8, 1.3],
-      [-33, 15, 0.8], [-30, 22, 1.1], [30, -3, 0.9], [33, 5, 1.1], [30, 13, 1.0],
-      [32, 20, 1.3],
+      [-33, 15, 0.8], [30, -3, 0.9], [33, 5, 1.1],
+      // trees z=13,20,22 removed — inside south road zone (z=11–25)
       // trees z=25-27 removed — they were inside the road zone
       // line the highway to the distributor
       [-2, -30, 1.0], [18, -34, 0.9], [-2, -50, 1.1], [18, -54, 1.0], [-2, -70, 0.9], [18, -74, 1.1],
@@ -1300,21 +1306,26 @@ export function initScene3D(): () => void {
     }
 
     // ── Stage 2 override: kamera ikut worker di lorong (x=5.5) ──
+    // IMPORTANT: orbitZoom=2.0 doubles the camera-to-lookAt vector.
+    // Set targetCamPos at HALF desired distance so post-zoom cam stays inside warehouse (z=-6..10).
     if (stageIndexAt(p) === 2) {
       const sp2 = p * STAGE_COUNT - 2;
       const PICK_T = 0.45;
 
       if (sp2 < PICK_T) {
-        // Phase A: worker diam di x=5.5, z=-2 (ujung rak)
-        // kamera dari timur-selatan, lihat ke worker + rak kiri
-        targetCamPos.set(11, 4.0, 3.5);
-        targetLookAt.set(3, 1.0, -2.5);
+        // Phase A: worker at z=-2 scanning left rack
+        // Desired final cam: (8, 3.5, 2) → lookAt (3.5, 1.5, -2)
+        // Pre-zoom = lookAt + vector/2
+        targetLookAt.set(3.5, 1.5, -2);
+        targetCamPos.set(5.75, 2.5, 0);
       } else {
-        // Phase B: worker jalan ke selatan dari z=-2 ke z=-7.5
+        // Phase B: worker walks south z=-2 → -7.5
         const bt = (sp2 - PICK_T) / (1 - PICK_T);
         const workerZ = -2 - bt * 5.5;
-        targetCamPos.set(5.5 + 4, 4.5, workerZ + 6);
-        targetLookAt.set(5.5, 1.2, workerZ - 1.5);
+        // Desired final cam: (9, 3.5, workerZ+3) → lookAt (4, 1.2, workerZ)
+        // Pre-zoom = lookAt + vector/2
+        targetLookAt.set(4, 1.2, workerZ);
+        targetCamPos.set(6.5, 2.35, workerZ + 1.5);
       }
     }
 
@@ -1577,8 +1588,8 @@ export function initScene3D(): () => void {
         forklift.position.set(forkX, 0, hero.z + 2.6);
         forklift.rotation.y = 0; // hadap utara/kiri saat balik
       } else if (stageIdx === 2 && sp2 < PICK_T) {
-        // Phase A: parkir di rak kiri saat worker picking
-        forklift.position.set(4, 0, hero.z + 2.6);
+        // Phase A: parkir di aisle dekat ujung rak kiri saat worker picking
+        forklift.position.set(6.5, 0, -1.5);
         forklift.rotation.y = Math.PI;
       } else {
         // Stage 2 phase B + semua stage lain: hidden
@@ -1598,7 +1609,10 @@ export function initScene3D(): () => void {
 
     // --- Stage 2: radar pulse on the hero pallet ---
     if (stageIdx === 2) {
-      radarRing.position.set(hero.x, 0.4, hero.z);
+      // hide radar ring during picking stage (was following wrong rack waypoints)
+      radarMat.opacity += (0 - radarMat.opacity) * 0.08;
+    } else if (stageIdx === 3) {
+      radarRing.position.set(heroPallet.position.x, 0.4, heroPallet.position.z);
       const rp = (t * 0.8) % 1;
       const rs = 1 + rp * 3;
       radarRing.scale.set(rs, rs, 1);
