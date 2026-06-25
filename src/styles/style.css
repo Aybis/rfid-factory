@@ -1641,6 +1641,44 @@ body.loading { opacity: 0; }
   color: var(--color-white);
 }
 
+/* --- Camera Controls Hint (top-left) --- */
+.immersive__cam-hint {
+  position: absolute;
+  z-index: 15;
+  top: 7rem;
+  left: 2.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  padding: 1rem 1.4rem;
+  pointer-events: none;
+  opacity: 0.7;
+  transition: opacity 0.3s ease;
+}
+.immersive__cam-hint-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+}
+.immersive__cam-hint-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
 /* --- Immersive Mobile --- */
 @media screen and (max-width: 640px),
        screen and (orientation: portrait) and (max-width: 1025px) {

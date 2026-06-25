@@ -32,8 +32,8 @@ export function initScene3D(): () => void {
   // ============================================
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d1b2a);
-  scene.fog = new THREE.FogExp2(0x0d1b2a, 0.006);
+  scene.background = new THREE.Color(0x87ceeb); // daytime sky blue
+  scene.fog = new THREE.FogExp2(0xb8d5e8, 0.0025); // soft daytime haze
   const fog = scene.fog as THREE.FogExp2;
 
   const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 600);
@@ -41,15 +41,15 @@ export function initScene3D(): () => void {
   camera.lookAt(8, 2, -16);
 
   // ── Dual-view cameras (used only in warehouse-overview section) ──
-  // LEFT — Inbound: road approach view, camera beside entrance road looking at the inbound dock
+  // LEFT — Inbound: cinematic view of south dock — trucks arriving from left (west)
   const cameraLeft = new THREE.PerspectiveCamera(52, 0.5, 0.1, 600);
-  cameraLeft.position.set(-5, 10, -36);
-  cameraLeft.lookAt(8, 2, -16);
+  cameraLeft.position.set(-14, 10, 28);
+  cameraLeft.lookAt(6, 2, 13);
 
-  // RIGHT — Outbound destination: distributor hub receiving end (~x8, z=-86)
+  // RIGHT — Outbound: north face RFID gates — pallets departing toward distributor
   const cameraRight = new THREE.PerspectiveCamera(52, 0.5, 0.1, 600);
-  cameraRight.position.set(35, 7, -61);
-  cameraRight.lookAt(8, 3, -84);
+  cameraRight.position.set(30, 8, -24);
+  cameraRight.lookAt(8, 2, -10);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -57,7 +57,7 @@ export function initScene3D(): () => void {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
+  renderer.toneMappingExposure = 1.35; // bright daytime
   container.appendChild(renderer.domElement);
 
   // ============================================
@@ -68,7 +68,7 @@ export function initScene3D(): () => void {
   let orbitPitch = 0;  // accumulated vertical drag (radians)
   let orbitZoom = 2.0; // zoom multiplier — 2.0 = camera starts 2× further from pallet
   let dragActive = false;
-  let isPanDrag = false; // true = left drag (pan), false = right drag (orbit)
+  let isPanDrag = false; // true = right drag (pan), false = left drag (orbit)
   let dragLastX = 0;
   let dragLastY = 0;
   let pinchLastDist = 0;
@@ -77,10 +77,15 @@ export function initScene3D(): () => void {
   const ORBIT_SENS = 0.006;
   const ZOOM_SENS = 0.0012;
 
+  // UI element selector — clicks on these should NOT start orbit
+  const UI_SELECTOR = 'button, a, input, select, label, .nav, .pin, .immersive__card, .immersive__step, .immersive__cam-hint, .immersive__scroll-hint, .wv, .hero__content';
+
   const onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0 && e.button !== 2) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(UI_SELECTOR)) return; // skip UI clicks
     dragActive = true;
-    isPanDrag = e.button === 0; // left = pan, right = orbit
+    isPanDrag = e.button === 2; // right = pan, left = orbit
     dragLastX = e.clientX;
     dragLastY = e.clientY;
     if (e.button === 2) e.preventDefault(); // suppress context menu
@@ -90,14 +95,14 @@ export function initScene3D(): () => void {
     const dx = e.clientX - dragLastX;
     const dy = e.clientY - dragLastY;
     if (isPanDrag) {
-      // Left drag — PAN: translate camera+target in camera's local XZ plane
+      // Right drag — PAN: translate camera+target in camera's local XZ plane
       const dir = new THREE.Vector3().subVectors(targetLookAt, targetCamPos).normalize();
       const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
       const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
       panOffset.addScaledVector(right, -dx * PAN_SENS);
       panOffset.addScaledVector(forward, dy * PAN_SENS);
     } else {
-      // Right drag — ORBIT: rotate camera around target
+      // Left drag — ORBIT: rotate camera around target
       orbitYaw -= dx * ORBIT_SENS;
       orbitPitch -= dy * ORBIT_SENS;
       orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
@@ -107,12 +112,12 @@ export function initScene3D(): () => void {
   };
   const onMouseUp = () => { dragActive = false; };
 
-  // Ctrl/Cmd + scroll → zoom in/out
+  // Ctrl/Cmd+scroll OR scroll-while-dragging → zoom. Normal scroll untouched for page journey.
   const onWheel = (e: WheelEvent) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (!(e.ctrlKey || e.metaKey || dragActive)) return;
     e.preventDefault();
     orbitZoom *= 1 + e.deltaY * ZOOM_SENS;
-    orbitZoom = Math.max(0.3, Math.min(8.0, orbitZoom)); // wider range: 0.3× close-up to 8× far
+    orbitZoom = Math.max(0.3, Math.min(8.0, orbitZoom));
   };
 
   // Double-click → reset all interactive offsets to defaults
@@ -144,14 +149,12 @@ export function initScene3D(): () => void {
       pinchLastDist = d;
       e.preventDefault();
     } else if (e.touches.length === 1 && dragActive) {
-      // Single-finger touch = PAN (matches new left-drag behaviour)
+      // Single-finger touch = ORBIT (matches left-drag behaviour)
       const dx = e.touches[0].clientX - dragLastX;
       const dy = e.touches[0].clientY - dragLastY;
-      const dir = new THREE.Vector3().subVectors(targetLookAt, targetCamPos).normalize();
-      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
-      const forward = new THREE.Vector3(dir.x, 0, dir.z).normalize();
-      panOffset.addScaledVector(right, -dx * PAN_SENS);
-      panOffset.addScaledVector(forward, dy * PAN_SENS);
+      orbitYaw -= dx * ORBIT_SENS;
+      orbitPitch -= dy * ORBIT_SENS;
+      orbitPitch = Math.max(-1.1, Math.min(1.1, orbitPitch));
       dragLastX = e.touches[0].clientX;
       dragLastY = e.touches[0].clientY;
       e.preventDefault();
@@ -160,29 +163,38 @@ export function initScene3D(): () => void {
   const onTouchEnd = () => { dragActive = false; pinchLastDist = 0; };
 
   const domEl = renderer.domElement;
-  domEl.addEventListener('mousedown', onMouseDown);
+  // All pointer/wheel listeners on window so they fire even though the canvas
+  // sits behind page overlays at zIndex:-1 and would otherwise never receive events.
+  window.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onMouseUp);
-  domEl.addEventListener('wheel', onWheel, { passive: false });
-  domEl.addEventListener('dblclick', onDblClick);
-  domEl.addEventListener('contextmenu', (e) => e.preventDefault()); // suppress right-click menu
+  window.addEventListener('wheel', onWheel, { passive: false });
+  window.addEventListener('dblclick', onDblClick);
+  window.addEventListener('contextmenu', (e) => { if (dragActive) e.preventDefault(); });
   domEl.addEventListener('touchstart', onTouchStart, { passive: true });
   domEl.addEventListener('touchmove', onTouchMove, { passive: false });
   domEl.addEventListener('touchend', onTouchEnd);
 
-  // Change cursor while dragging
-  domEl.style.cursor = 'grab';
-  domEl.addEventListener('mousedown', () => { domEl.style.cursor = 'grabbing'; });
-  window.addEventListener('mouseup', () => { domEl.style.cursor = 'grab'; });
+  // Cursor feedback on the immersive sticky container (visible layer)
+  const immersiveEl = document.getElementById('immersive');
+  if (immersiveEl) immersiveEl.style.cursor = 'grab';
+  window.addEventListener('mousedown', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(UI_SELECTOR)) return;
+    if (immersiveEl) immersiveEl.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mouseup', () => {
+    if (immersiveEl) immersiveEl.style.cursor = 'grab';
+  });
 
   // ============================================
   // LIGHTING
   // ============================================
 
-  const ambientLight = new THREE.AmbientLight(0x4488aa, 0.5);
+  const ambientLight = new THREE.AmbientLight(0xffe8c0, 2.2); // warm daytime sky
   scene.add(ambientLight);
 
-  const sunLight = new THREE.DirectionalLight(0xffeedd, 1.0);
+  const sunLight = new THREE.DirectionalLight(0xfff5e0, 3.0); // strong midday sun
   sunLight.position.set(30, 50, 20);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
@@ -196,11 +208,11 @@ export function initScene3D(): () => void {
   sunLight.shadow.bias = -0.001;
   scene.add(sunLight);
 
-  const fillLight = new THREE.DirectionalLight(0x00d4ff, 0.25);
+  const fillLight = new THREE.DirectionalLight(0xaaccee, 0.6); // blue-sky fill
   fillLight.position.set(-20, 20, -10);
   scene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0x00e5a0, 0.15);
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.3); // white rim
   rimLight.position.set(-10, 10, 30);
   scene.add(rimLight);
 
@@ -211,6 +223,11 @@ export function initScene3D(): () => void {
   const rfidLight2 = new THREE.PointLight(0x00e5a0, 0.8, 12);
   rfidLight2.position.set(-8, 3, 5);
   scene.add(rfidLight2);
+
+  // Inbound zone light — illuminates dock apron and reader poles
+  const inboundGateLight = new THREE.PointLight(0x00d4ff, 1.0, 20);
+  inboundGateLight.position.set(7, 5, 15);
+  scene.add(inboundGateLight);
 
   const serverGlow = new THREE.PointLight(0x00ff88, 0.6, 10);
   serverGlow.position.set(-20, 4, -5);
@@ -348,6 +365,63 @@ export function initScene3D(): () => void {
   scene.add(createGate(13, 0.1, -8, 0));
   scene.add(createGate(-8, 0.1, 5, Math.PI / 2));
 
+  // ============================================
+  // INBOUND DOCK AREA — South (Back) Face of Warehouse
+  // Trucks approach from the left (west) along the south road and
+  // back into the dock for inbound receiving — mirrored opposite outbound.
+  // ============================================
+
+  // Inbound staging / apron pad south of warehouse
+  scene.add(box(30, 0.25, 12, mat.groundPad, 7, 0.06, 17));
+
+  // Dock bumper rails at south wall base
+  scene.add(box(22, 0.4, 0.4, mat.metalDark, 8, 0.2, 10.2));
+
+  // Loading dock doors on south face of warehouse (z = 10.15)
+  scene.add(box(4, 4, 0.3, mat.door, 2, 2, 10.15));
+  scene.add(box(4, 4, 0.3, mat.door, 9, 2, 10.15));
+  scene.add(box(4, 4, 0.3, mat.door, 16, 2, 10.15));
+
+  // Dock canopies above each door (rain shelter overhang)
+  scene.add(box(5, 0.2, 3, mat.metalDark, 2, 4.2, 11.5));
+  scene.add(box(5, 0.2, 3, mat.metalDark, 9, 4.2, 11.5));
+  scene.add(box(5, 0.2, 3, mat.metalDark, 16, 4.2, 11.5));
+  scene.add(box(0.15, 2.5, 0.15, mat.metal, 2, 3.0, 13));
+  scene.add(box(0.15, 2.5, 0.15, mat.metal, 9, 3.0, 13));
+  scene.add(box(0.15, 2.5, 0.15, mat.metal, 16, 3.0, 13));
+
+  // ── RFID pallet portal at dock entrance (reads pallets moved into warehouse) ──
+  // Positioned between dock door and apron — pallet-width only, no truck collision
+  scene.add(createGate(9, 0.1, 12, 0));
+
+  // ── RFID truck reader poles (side of truck lane — no collision, reads all tags) ──
+  function createRFIDReaderPole(rx: number, rz: number, facingAngle: number): THREE.Group {
+    const g = new THREE.Group();
+    g.add(cyl(0.12, 0.15, 5, 8, mat.metalDark, 0, 2.5, 0));          // mast
+    g.add(cyl(0.5, 0.55, 0.2, 8, mat.groundPad, 0, 0.1, 0));          // base
+    g.add(box(0.7, 1.4, 0.12, mat.rfidCyan, 0, 4.0, 0.38));           // reader panel
+    g.add(box(0.5, 0.08, 0.6, mat.rfidCyan, 0, 4.85, 0.15));          // top bar
+    g.add(cyl(0.09, 0.09, 0.22, 8, mat.rfidGreen, 0, 5.1, 0));        // LED beacon
+    g.position.set(rx, 0, rz);
+    g.rotation.y = facingAngle;
+    return g;
+  }
+  // Two poles flanking the truck approach lane at z=18
+  scene.add(createRFIDReaderPole(-1.5, 18, 0));        // left side of lane
+  scene.add(createRFIDReaderPole(16, 18, Math.PI));    // right side of lane
+
+  // Freight crates staged at inbound receiving bay
+  scene.add(box(1.5, 1.0, 1.2, mat.crate, 18, 0.9, 15));
+  scene.add(box(1.5, 1.0, 1.2, mat.crate, 18, 2.0, 15));
+  scene.add(box(0.5, 0.3, 0.04, mat.crateTag, 18, 0.95, 14.35));
+  scene.add(box(1.3, 0.9, 1.1, mat.crate, 19.8, 0.8, 16.5));
+  scene.add(box(1.5, 1.0, 1.2, mat.crate, -1, 0.9, 15));
+  scene.add(box(0.5, 0.3, 0.04, mat.crateTag, -1, 0.95, 14.35));
+  scene.add(box(1.3, 0.9, 1.1, mat.crate, -2.5, 0.8, 16.5));
+
+  // Inbound dock tower (antenna + RFID reader mast)
+  scene.add(createTower(-3, 22, 9));
+
   // Server Room
   scene.add(box(10, 6, 8, mat.buildingDark, -20, 3, -5));
   scene.add(box(11, 0.4, 9, mat.roof, -20, 6.2, -5));
@@ -417,6 +491,9 @@ export function initScene3D(): () => void {
   scene.add(createTower(-25, 20, 10));
   scene.add(createTower(25, 20, 11));
 
+  // Inbound truck material variant (green cab for visual distinction)
+  const matInboundCab = new THREE.MeshStandardMaterial({ color: 0x3a6a4a, roughness: 0.6 });
+
   // Parked scenery trucks
   function createTruck(tx: number, tz: number, ry: number): THREE.Group {
     const g = new THREE.Group();
@@ -440,6 +517,82 @@ export function initScene3D(): () => void {
     return g;
   }
   scene.add(createTruck(16, -16, 0));
+
+  // ── Realistic container truck (green cab) ──────────────────────────────────
+  function createInboundTruck(tx: number, tz: number, ry: number): THREE.Group {
+    const g = new THREE.Group();
+
+    // === CAB ===
+    // Lower cab body
+    g.add(box(2.7, 2.0, 3.4, matInboundCab, 0, 1.2, -2.7));
+    // Upper cab sleeper/roof
+    g.add(box(2.6, 1.4, 2.8, matInboundCab, 0, 2.9, -2.4));
+    // Roof aero fairing
+    g.add(box(2.5, 0.5, 1.6, mat.metalDark, 0, 3.7, -2.0));
+    // Windshield (angled)
+    g.add(box(2.3, 1.3, 0.12, mat.glass, 0, 2.5, -4.2));
+    // Side windows
+    g.add(box(0.12, 0.85, 1.1, mat.glass, -1.32, 2.6, -2.9));
+    g.add(box(0.12, 0.85, 1.1, mat.glass,  1.32, 2.6, -2.9));
+    // Side mirrors
+    g.add(box(0.55, 0.28, 0.18, mat.metalDark, -1.65, 2.8, -3.9));
+    g.add(box(0.55, 0.28, 0.18, mat.metalDark,  1.65, 2.8, -3.9));
+    // Front grille / bumper
+    g.add(box(2.7, 0.55, 0.22, mat.metalDark, 0, 0.6, -4.3));
+    g.add(box(2.0, 0.35, 0.14, mat.metal, 0, 1.0, -4.32));
+    // Headlights
+    g.add(box(0.5, 0.3, 0.1, mat.rfidCyan, -0.9, 0.85, -4.35));
+    g.add(box(0.5, 0.3, 0.1, mat.rfidCyan,  0.9, 0.85, -4.35));
+    // Exhaust stacks
+    const ex1 = cyl(0.1, 0.1, 2.0, 8, mat.metalDark, -1.15, 3.2, -1.6); g.add(ex1);
+    const ex2 = cyl(0.1, 0.1, 2.0, 8, mat.metalDark,  1.15, 3.2, -1.6); g.add(ex2);
+    // Chassis / frame rails
+    g.add(box(0.18, 0.3, 14.5, mat.metalDark, -1.1, 0.35, 0));
+    g.add(box(0.18, 0.3, 14.5, mat.metalDark,  1.1, 0.35, 0));
+    // Fuel tanks
+    g.add(box(0.4, 0.9, 2.0, mat.metal, -1.3, 0.85, -0.8));
+    g.add(box(0.4, 0.9, 2.0, mat.metal,  1.3, 0.85, -0.8));
+    // Fifth-wheel plate
+    g.add(box(1.4, 0.2, 1.1, mat.metalDark, 0, 1.25, -1.0));
+
+    // === CONTAINER BODY ===
+    // Main box
+    g.add(box(2.85, 3.2, 9.5, mat.truckBody, 0, 2.15, 3.25));
+    // Horizontal ribs (structural detail)
+    for (let rz = -1.0; rz <= 7.5; rz += 1.6) {
+      g.add(box(2.92, 0.1, 0.1, mat.metalDark, 0, 0.7, rz));
+      g.add(box(2.92, 0.1, 0.1, mat.metalDark, 0, 3.7, rz));
+    }
+    // Vertical corner posts
+    g.add(box(0.14, 3.5, 0.14, mat.metalDark, -1.42, 2.15, -0.95));
+    g.add(box(0.14, 3.5, 0.14, mat.metalDark,  1.42, 2.15, -0.95));
+    g.add(box(0.14, 3.5, 0.14, mat.metalDark, -1.42, 2.15,  7.45));
+    g.add(box(0.14, 3.5, 0.14, mat.metalDark,  1.42, 2.15,  7.45));
+    // Rear doors
+    g.add(box(1.3, 2.9, 0.1, mat.metalDark, -0.72, 2.15, 7.55));
+    g.add(box(1.3, 2.9, 0.1, mat.metalDark,  0.72, 2.15, 7.55));
+    g.add(box(0.06, 2.6, 0.22, mat.metal, 0, 2.15, 7.65));  // centre door seal
+
+    // === WHEELS ===
+    // Front steer axle (2 wheels)
+    ([ [-1.3, -3.6], [1.3, -3.6] ] as Array<[number,number]>).forEach(([wx, wz]) => {
+      const w = cyl(0.46, 0.46, 0.32, 14, mat.metalDark, wx, 0.46, wz);
+      w.rotation.z = Math.PI / 2; g.add(w);
+      const h = cyl(0.2, 0.2, 0.34, 8, mat.metal, wx, 0.46, wz);
+      h.rotation.z = Math.PI / 2; g.add(h);
+    });
+    // Drive axles (dual rear wheels, 3 axle positions)
+    ([0.9, 2.2, 4.5] as number[]).forEach(wz => {
+      ([-1.2, -1.55, 1.2, 1.55] as number[]).forEach(wx => {
+        const w = cyl(0.44, 0.44, 0.28, 14, mat.metalDark, wx, 0.44, wz);
+        w.rotation.z = Math.PI / 2; g.add(w);
+      });
+    });
+
+    g.position.set(tx, 0, tz);
+    if (ry) g.rotation.y = ry;
+    return g;
+  }
 
   // ============================================
   // WORKER HUMANOIDS
@@ -621,6 +774,14 @@ export function initScene3D(): () => void {
   scene.add(forklift);
 
   // ============================================
+  // ANIMATED INBOUND TRUCK — approaches from left (west) along south road
+  // ============================================
+
+  // Single animated inbound truck — multi-phase: approach → back-in → dock → leave
+  const inboundTruckMover = createInboundTruck(-35, 18, Math.PI / 2); // start off-screen west
+  scene.add(inboundTruckMover);
+
+  // ============================================
   // ANIMATED RFID SIGNAL WAVES (gates)
   // ============================================
 
@@ -646,6 +807,8 @@ export function initScene3D(): () => void {
   addWave(13, 3, -8);
   addWave(-8, 3, 5);
   addWave(8, 3, -80); // distributor gate
+  // Inbound — pallet portal gate at z=12
+  addWave(9, 3, 12);
 
   // --- Radar ring (picking) ---
   const radarRing = new THREE.Mesh(
@@ -790,6 +953,42 @@ export function initScene3D(): () => void {
     else truckZ = WAYPOINTS[5].z; // parked at distributor
     shipmentTruck.position.set(8, 0, truckZ);
 
+    // --- Inbound truck: multi-phase animation (approach → back-in → dock → leave) ---
+    // Total cycle: 26 s. Truck starts far-west, drives east to dock, docks, then leaves east.
+    const INBOUND_CYCLE = 26;
+    const iT = t % INBOUND_CYCLE; // time within current cycle
+
+    if (iT < 8) {
+      // Phase 1 (0–8s): Drive east along z=18 from x=-35 to x=7
+      const f = iT / 8;
+      inboundTruckMover.position.x = -35 + f * 42; // -35 → 7
+      inboundTruckMover.position.z = 18;
+      inboundTruckMover.rotation.y = Math.PI / 2;
+    } else if (iT < 10.5) {
+      // Phase 2 (8–10.5s): Back in — z moves 18→15, rotation turns PI/2→PI
+      const f = (iT - 8) / 2.5;
+      inboundTruckMover.position.x = 7;
+      inboundTruckMover.position.z = 18 - f * 3; // 18 → 15
+      inboundTruckMover.rotation.y = Math.PI / 2 + f * (Math.PI / 2); // PI/2 → PI
+    } else if (iT < 16) {
+      // Phase 3 (10.5–16s): Docked — truck stationary for unloading
+      inboundTruckMover.position.x = 7;
+      inboundTruckMover.position.z = 15;
+      inboundTruckMover.rotation.y = Math.PI;
+    } else if (iT < 18.5) {
+      // Phase 4 (16–18.5s): Pull forward — z 15→18, rotation PI→PI/2
+      const f = (iT - 16) / 2.5;
+      inboundTruckMover.position.x = 7;
+      inboundTruckMover.position.z = 15 + f * 3; // 15 → 18
+      inboundTruckMover.rotation.y = Math.PI - f * (Math.PI / 2); // PI → PI/2
+    } else {
+      // Phase 5 (18.5–26s): Exit east off-screen
+      const f = (iT - 18.5) / 7.5;
+      inboundTruckMover.position.x = 7 + f * 45; // 7 → 52 (off-screen)
+      inboundTruckMover.position.z = 18;
+      inboundTruckMover.rotation.y = Math.PI / 2;
+    }
+
     // --- Camera follows the pallet ---
     const off = camOffsetAt(p);
     targetCamPos.set(hero.x + off.x, hero.y + off.y, hero.z + off.z);
@@ -846,21 +1045,27 @@ export function initScene3D(): () => void {
       (led.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.2 + 0.8 * Math.abs(Math.sin(t * 3 + led.position.x * 5));
     });
 
-    // --- Stage 0 / 3: gate read pulse ---
+    // --- Stage 0 / 3 / 5: gate read pulse ---
     if (stageIdx === 0 || stageIdx === 3 || stageIdx === 5) {
       rfidLight1.intensity = 2 + Math.sin(t * 3) * 1.2;
-      rfidLight1.position.set(8, 4, stageIdx === 5 ? -80 : -8);
+      // Stage 0 = south inbound gate (z=13), Stage 3 = north outbound gate (z=-8), Stage 5 = distributor (z=-80)
+      rfidLight1.position.set(8, 4, stageIdx === 5 ? -80 : stageIdx === 0 ? 13 : -8);
       rfidLight2.intensity = 1.4 + Math.sin(t * 2.5) * 0.7;
     } else {
       rfidLight1.intensity += (1 - rfidLight1.intensity) * 0.04;
       rfidLight2.intensity += (0.8 - rfidLight2.intensity) * 0.04;
     }
 
+    // Inbound gate light — brighter pulse during Stage 0, ambient glow otherwise
+    inboundGateLight.intensity = stageIdx === 0
+      ? 2.2 + Math.sin(t * 3.2) * 1.0
+      : 0.8 + Math.sin(t * 1.5) * 0.3;
+
     // --- Worker animations per stage ---
-    // Stage 0 (Inbound): worker1 at gate scanning arriving pallet
+    // Stage 0 (Inbound): worker1 at south inbound gate scanning arriving pallet
     if (stageIdx === 0) {
-      worker1.group.position.set(11, 0, -9);
-      worker1.group.rotation.y = -Math.PI * 0.5;
+      worker1.group.position.set(12, 0, 13);
+      worker1.group.rotation.y = Math.PI * 0.5; // facing west, toward incoming trucks
       worker1.scanner.visible = true;
       worker1.carryCrate.visible = false;
       // Scanning gesture: right arm raised toward gate
@@ -1001,32 +1206,32 @@ export function initScene3D(): () => void {
       renderer.setViewport(0, 0, W, H);
       renderer.setScissorTest(false);
       const prevExposure = renderer.toneMappingExposure;
-      renderer.toneMappingExposure = 0.75;
+      renderer.toneMappingExposure = 1.3;
       renderer.setClearColor(0x0d1b2a, 1);
       renderer.clear(true, true, false);
 
       renderer.setScissorTest(true);
 
-      // LEFT — Inbound: truck approaching from road to warehouse entrance gate
+      // LEFT — Inbound: south dock view — trucks arriving from the west
       renderer.setViewport(0, 0, half, H);
       renderer.setScissor(0, 0, half, H);
       cameraLeft.aspect = half / H;
       cameraLeft.updateProjectionMatrix();
-      cameraLeft.position.x = -5 + Math.sin(t * 0.10) * 2;
-      cameraLeft.position.z = -36 + Math.cos(t * 0.08) * 2.5;
+      cameraLeft.position.x = -14 + Math.sin(t * 0.10) * 2;
+      cameraLeft.position.z = 28 + Math.cos(t * 0.08) * 2.5;
       cameraLeft.position.y = 10 + Math.sin(t * 0.06) * 1.0;
-      cameraLeft.lookAt(8, 2, -16);
+      cameraLeft.lookAt(6, 2, 13);
       renderer.render(scene, cameraLeft);
 
-      // RIGHT — Distributor Hub (side-on cinematic view)
+      // RIGHT — Outbound: north face RFID gates, pallets departing toward distributor
       renderer.setViewport(half, 0, W - half, H);
       renderer.setScissor(half, 0, W - half, H);
       cameraRight.aspect = (W - half) / H;
       cameraRight.updateProjectionMatrix();
-      cameraRight.position.x = 35 + Math.sin(t * 0.11 + 1) * 3;
-      cameraRight.position.z = -61 + Math.cos(t * 0.08 + 0.5) * 2;
-      cameraRight.position.y = 7 + Math.sin(t * 0.06 + 1) * 0.8;
-      cameraRight.lookAt(8, 3, -84);
+      cameraRight.position.x = 30 + Math.sin(t * 0.11 + 1) * 3;
+      cameraRight.position.z = -24 + Math.cos(t * 0.08 + 0.5) * 2;
+      cameraRight.position.y = 8 + Math.sin(t * 0.06 + 1) * 0.8;
+      cameraRight.lookAt(8, 2, -10);
       renderer.render(scene, cameraRight);
 
       renderer.setScissorTest(false);
@@ -1060,11 +1265,11 @@ export function initScene3D(): () => void {
   return () => {
     cancelAnimationFrame(rafId);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener('mousedown', onMouseDown);
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
-    domEl.removeEventListener('mousedown', onMouseDown);
-    domEl.removeEventListener('wheel', onWheel);
-    domEl.removeEventListener('dblclick', onDblClick);
+    window.removeEventListener('wheel', onWheel);
+    window.removeEventListener('dblclick', onDblClick);
     domEl.removeEventListener('touchstart', onTouchStart);
     domEl.removeEventListener('touchmove', onTouchMove);
     domEl.removeEventListener('touchend', onTouchEnd);

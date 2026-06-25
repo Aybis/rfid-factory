@@ -45,8 +45,8 @@ export const STAGE_COUNT = 6;
  * y changes encode lifting onto a rack / onto the truck bed.
  */
 export const WAYPOINTS: Vec3[] = [
-  { x: 8, y: 1.6, z: -16 }, // 0  start: inbound truck at dock
-  { x: 8, y: 1.6, z: -3 }, // 1  end inbound: inside receiving
+  { x: 7, y: 1.6, z: 14 }, // 0  start: inside truck container (docked at z=15)
+  { x: 8, y: 1.6, z: 11 }, // 1  end inbound: through south gates into warehouse
   { x: 16, y: 2.4, z: 2 }, // 2  end storage: placed on rack
   { x: 8, y: 1.6, z: -5 }, // 3  end picking: at staging
   { x: 8, y: 2.6, z: -15 }, // 4  end outbound: on truck bed at dock
@@ -72,12 +72,12 @@ export const STAGES: JourneyStage[] = [
     phaseLabel: 'Inbound',
     title: 'Inbound — Barang Masuk',
     text: 'Truk tiba di loading dock. Setiap palet melewati RFID Gate dan otomatis terbaca, lalu dicocokkan dengan Purchase Order secara real-time.',
-    camOffset: { x: 14, y: 5, z: 6 },
+    camOffset: { x: 12, y: 5, z: -4 },
     fogDensity: 0.004,
     pins: [
-      { id: 'in-gate', label: 'RFID Gate Inbound', world: { x: 8, y: 4.4, z: -8 }, title: 'RFID Gate Inbound', desc: 'Gawang membaca seluruh tag sekaligus tanpa perlu scan satu per satu.', imgBg: GRAD.teal },
-      { id: 'in-truck', label: 'Truk Datang', world: { x: 8, y: 2.6, z: -16 }, title: 'Kedatangan Truk', desc: 'Palet diturunkan dari truk menuju area penerimaan gudang utama.', imgBg: GRAD.blue },
-      { id: 'in-po', label: 'Verifikasi PO', world: { x: 4, y: 2.2, z: -2 }, title: 'Verifikasi Purchase Order', desc: 'Sistem mencocokkan barang masuk dengan dokumen pembelian secara otomatis.', imgBg: GRAD.steel },
+      { id: 'in-gate', label: 'RFID Reader Inbound', world: { x: -1.5, y: 4.5, z: 18 }, title: 'RFID Reader Inbound', desc: 'Reader pole membaca tag palet saat truk masuk area loading dock.', imgBg: GRAD.teal },
+      { id: 'in-truck', label: 'Truk Datang', world: { x: 7, y: 3.5, z: 14 }, title: 'Kedatangan Truk', desc: 'Palet berada di dalam kontainer — siap diturunkan menuju area penerimaan gudang.', imgBg: GRAD.blue },
+      { id: 'in-po', label: 'Verifikasi PO', world: { x: 4, y: 2.2, z: 11 }, title: 'Verifikasi Purchase Order', desc: 'Sistem mencocokkan barang masuk dengan dokumen pembelian secara otomatis.', imgBg: GRAD.steel },
     ],
   },
 
