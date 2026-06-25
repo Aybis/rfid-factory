@@ -45,7 +45,7 @@ export const STAGE_COUNT = 6;
  * y changes encode lifting onto a rack / onto the truck bed.
  */
 export const WAYPOINTS: Vec3[] = [
-  { x: 7, y: 1.6, z: 14 }, // 0  start: inside truck container (docked at z=15)
+  { x: 9, y: 1.6, z: 18 }, // 0  start: on dock conveyor at truck parking zone (z=18)
   { x: 8, y: 1.6, z: 11 }, // 1  end inbound: through south gates into warehouse
   { x: 16, y: 2.4, z: 2 }, // 2  end storage: placed on rack
   { x: 8, y: 1.6, z: -5 }, // 3  end picking: at staging
@@ -75,9 +75,9 @@ export const STAGES: JourneyStage[] = [
     camOffset: { x: 12, y: 5, z: -4 },
     fogDensity: 0.004,
     pins: [
-      { id: 'in-gate', label: 'RFID Reader Inbound', world: { x: -1.5, y: 4.5, z: 18 }, title: 'RFID Reader Inbound', desc: 'Reader pole membaca tag palet saat truk masuk area loading dock.', imgBg: GRAD.teal },
-      { id: 'in-truck', label: 'Truk Datang', world: { x: 7, y: 3.5, z: 14 }, title: 'Kedatangan Truk', desc: 'Palet berada di dalam kontainer — siap diturunkan menuju area penerimaan gudang.', imgBg: GRAD.blue },
-      { id: 'in-po', label: 'Verifikasi PO', world: { x: 4, y: 2.2, z: 11 }, title: 'Verifikasi Purchase Order', desc: 'Sistem mencocokkan barang masuk dengan dokumen pembelian secara otomatis.', imgBg: GRAD.steel },
+      { id: 'in-gate', label: 'RFID Reader Inbound', world: { x: 9, y: 2.5, z: 14 }, title: 'RFID Reader Inbound', desc: 'Reader membaca tag palet di atas conveyor saat barang bergerak dari truk ke loading dock.', imgBg: GRAD.teal },
+      { id: 'in-truck', label: 'Truk Datang', world: { x: 8, y: 3.5, z: 20 }, title: 'Kedatangan Truk', desc: 'Palet berada di dalam kontainer — siap diturunkan menuju area penerimaan gudang.', imgBg: GRAD.blue },
+      { id: 'in-po', label: 'Verifikasi PO', world: { x: 9, y: 5, z: 11 }, title: 'Verifikasi Purchase Order', desc: 'Sistem mencocokkan barang masuk dengan dokumen pembelian secara otomatis.', imgBg: GRAD.steel },
     ],
   },
 
@@ -91,9 +91,9 @@ export const STAGES: JourneyStage[] = [
     camOffset: { x: -5, y: 1.8, z: 4 },
     fogDensity: 0.001,
     pins: [
-      { id: 'st-forklift', label: 'Smart Forklift', world: { x: 12, y: 2.2, z: 0 }, title: 'Smart Forklift / Handheld', desc: 'Forklift atau petugas dilengkapi RFID reader yang mengunci pasangan barang–lokasi saat penyimpanan.', imgBg: GRAD.amber },
-      { id: 'st-loc', label: 'RFID Location Tag', world: { x: 18, y: 3.2, z: 2 }, title: 'Tag Lokasi Rak', desc: 'Setiap rak memiliki RFID location tag, sehingga sistem tahu persis di mana barang berada.', imgBg: GRAD.blue },
-      { id: 'st-inv', label: 'Real-time Inventory', world: { x: 9, y: 6, z: -2 }, title: 'Inventory Real-time', desc: 'Visibilitas stok diperbarui real-time dengan akurasi hampir 100% — stock opname jadi mudah.', imgBg: GRAD.green },
+      { id: 'st-forklift', label: 'Smart Forklift', world: { x: 13, y: 2.5, z: 1 }, title: 'Smart Forklift / Handheld', desc: 'Forklift atau petugas dilengkapi RFID reader yang mengunci pasangan barang–lokasi saat penyimpanan.', imgBg: GRAD.amber },
+      { id: 'st-loc', label: 'RFID Location Tag', world: { x: 22, y: 5.5, z: 2 }, title: 'Tag Lokasi Rak', desc: 'Setiap rak memiliki RFID location tag, sehingga sistem tahu persis di mana barang berada.', imgBg: GRAD.blue },
+      { id: 'st-inv', label: 'Real-time Inventory', world: { x: 9, y: 9, z: -2 }, title: 'Inventory Real-time', desc: 'Visibilitas stok diperbarui real-time dengan akurasi hampir 100% — stock opname jadi mudah.', imgBg: GRAD.green },
     ],
   },
 
@@ -107,9 +107,9 @@ export const STAGES: JourneyStage[] = [
     camOffset: { x: -6, y: 1.5, z: 3 },
     fogDensity: 0.001,
     pins: [
-      { id: 'pk-radar', label: 'Radar Pencarian', world: { x: 16, y: 2.8, z: 2 }, title: 'Pencarian Cepat (Radar)', desc: 'Scanner memandu petugas langsung ke barang yang tepat, bahkan di rak yang padat.', imgBg: GRAD.teal },
-      { id: 'pk-valid', label: 'Validasi Anti-Salah', world: { x: 8, y: 2.2, z: -4 }, title: 'Validasi Anti-Salah', desc: 'Saat barang diangkat, reader memverifikasi kesesuaiannya dengan daftar pesanan.', imgBg: GRAD.green },
-      { id: 'pk-stage', label: 'Area Staging', world: { x: 6, y: 1.8, z: -6 }, title: 'Konsolidasi Staging', desc: 'Barang terpilih dikumpulkan dan disiapkan menuju pintu keluar.', imgBg: GRAD.steel },
+      { id: 'pk-radar', label: 'Radar Pencarian', world: { x: 22, y: 5.5, z: 2 }, title: 'Pencarian Cepat (Radar)', desc: 'Scanner memandu petugas langsung ke barang yang tepat, bahkan di rak yang padat.', imgBg: GRAD.teal },
+      { id: 'pk-valid', label: 'Validasi Anti-Salah', world: { x: 13, y: 4.5, z: -1 }, title: 'Validasi Anti-Salah', desc: 'Saat barang diangkat, reader memverifikasi kesesuaiannya dengan daftar pesanan.', imgBg: GRAD.green },
+      { id: 'pk-stage', label: 'Area Staging', world: { x: 8, y: 2.0, z: -5 }, title: 'Konsolidasi Staging', desc: 'Barang terpilih dikumpulkan dan disiapkan menuju pintu keluar.', imgBg: GRAD.steel },
     ],
   },
 
@@ -123,9 +123,9 @@ export const STAGES: JourneyStage[] = [
     camOffset: { x: 2, y: 2.5, z: -9 },
     fogDensity: 0.003,
     pins: [
-      { id: 'out-gate', label: 'RFID Gate Outbound', world: { x: 8, y: 4.4, z: -8 }, title: 'RFID Gate Outbound', desc: 'Verifikasi otomatis seluruh muatan sebelum barang naik ke truk pengiriman.', imgBg: GRAD.teal },
-      { id: 'out-alarm', label: 'Indikator & Alarm', world: { x: 11, y: 4.6, z: -8 }, title: 'Indikator & Alarm', desc: 'Lampu atau alarm di gawang menyala bila barang tertukar, salah ukuran, atau jumlahnya kurang.', imgBg: GRAD.red },
-      { id: 'out-doc', label: 'Dokumen Otomatis', world: { x: 4, y: 3, z: -11 }, title: 'Dokumen Otomatis', desc: 'Stok terpotong, Surat Jalan (DO) tercetak, dan ASN dikirim digital ke distributor.', imgBg: GRAD.amber },
+      { id: 'out-gate', label: 'RFID Gate Outbound', world: { x: 7, y: 4.4, z: -8 }, title: 'RFID Gate Outbound', desc: 'Verifikasi otomatis seluruh muatan sebelum barang naik ke truk pengiriman.', imgBg: GRAD.teal },
+      { id: 'out-alarm', label: 'Indikator & Alarm', world: { x: 13, y: 4.6, z: -8 }, title: 'Indikator & Alarm', desc: 'Lampu atau alarm di gawang menyala bila barang tertukar, salah ukuran, atau jumlahnya kurang.', imgBg: GRAD.red },
+      { id: 'out-doc', label: 'Dokumen Otomatis', world: { x: 1, y: 3.5, z: -10 }, title: 'Dokumen Otomatis', desc: 'Stok terpotong, Surat Jalan (DO) tercetak, dan ASN dikirim digital ke distributor.', imgBg: GRAD.amber },
     ],
   },
 

@@ -156,9 +156,11 @@ export function setStage(index: number) {
       el.dataset.pinId = pinData.id;
       el.style.transitionDelay = i * 110 + 'ms';
       el.innerHTML = `
-        <div class="pin__icon">✦</div>
+        <div class="pin__dot"></div>
         <span class="pin__label">${pinData.label}</span>
       `;
+      el.addEventListener('mouseenter', () => el.classList.add('hovered'));
+      el.addEventListener('mouseleave', () => el.classList.remove('hovered'));
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         openCard(pinData, el);

@@ -17,6 +17,8 @@ import { setStage, projectPins } from './overlay';
 
 // Shared scroll-driven journey progress in [0,1].
 let journeyProgress = 0;
+// Smoothed progress: lerped toward journeyProgress every frame for cinematic feel.
+let smoothedProgress = 0;
 
 // Dual-view mode: true when #warehouse-view section is the active viewport section.
 let dualViewActive = false;
@@ -249,9 +251,9 @@ export function initScene3D(): () => void {
   // ============================================
 
   const mat = {
-    ground: new THREE.MeshStandardMaterial({ color: 0x1a3a2a, roughness: 0.9 }),
+    ground: new THREE.MeshStandardMaterial({ color: 0x2e7a2e, roughness: 0.9 }),    // bright lawn green
     groundPad: new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.7, metalness: 0.2 }),
-    road: new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.85 }),
+    road: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.85 }),    // dark asphalt
     roadMark: new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5 }),
     building: new THREE.MeshStandardMaterial({ color: 0xbbc8d4, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }),
     buildingDark: new THREE.MeshStandardMaterial({ color: 0x667788, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide }),
@@ -322,10 +324,15 @@ export function initScene3D(): () => void {
 
   scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, -12));
   scene.add(box(3, 0.25, 45, mat.road, -15, 0.05, 0));
-  scene.add(box(55, 0.25, 3, mat.road, 0, 0.05, 18));
-  for (let i = -24; i <= 24; i += 4) {
+  // South inbound road — wide enough for full truck with turning room (z=11..25, width=14)
+  scene.add(box(60, 0.25, 14, mat.road, 0, 0.05, 18));
+  // Edge lines
+  scene.add(box(60, 0.02, 0.2, mat.roadMark, 0, 0.28, 11.2));  // warehouse-side edge
+  scene.add(box(60, 0.02, 0.2, mat.roadMark, 0, 0.28, 24.8));  // outer edge
+  // Centre dashed line
+  for (let i = -28; i <= 28; i += 4) {
+    scene.add(box(1.8, 0.02, 0.25, mat.roadMark, i, 0.28, 18));
     scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, -12));
-    scene.add(box(1.5, 0.02, 0.3, mat.roadMark, i, 0.28, 18));
   }
 
   // Highway to the distributor (runs north along x=8)
@@ -334,16 +341,40 @@ export function initScene3D(): () => void {
     scene.add(box(0.3, 0.02, 1.5, mat.roadMark, 8, 0.28, z));
   }
 
-  // Main Warehouse
-  scene.add(box(22, 8, 16, mat.building, 8, 4, 2));
-  scene.add(box(23, 0.5, 17, mat.roof, 8, 8.25, 2));
-  scene.add(box(23, 1.5, 0.5, mat.metalDark, 8, 9, 2));
-  for (let i = -2; i <= 18; i += 4) {
-    scene.add(box(2.5, 2, 0.1, mat.glass, i, 5, -5.95));
-    scene.add(box(2.5, 2, 0.1, mat.glass, i, 5, 9.95));
+  // Main Warehouse — 5-panel DoubleSide construction; north face segmented for open doorways
+  const matWall = mat.building.clone();
+  (matWall as THREE.MeshStandardMaterial).side = THREE.DoubleSide; // visible inside & outside
+  // South wall — segmented with 4 open dock bays at dx=2,9,16,23 (each 4-unit wide, h=5.5)
+  scene.add(box(38, 6.5, 0.5, matWall, 8, 9.25, 10));     // top strip above all doors
+  scene.add(box(11, 5.5, 0.5, matWall, -5.5, 2.75, 10)); // left pier x=-11..0
+  scene.add(box(3,  5.5, 0.5, matWall, 5.5,  2.75, 10)); // pier between bay1 & bay2 (x=4..7)
+  scene.add(box(3,  5.5, 0.5, matWall, 12.5, 2.75, 10)); // pier between bay2 & bay3 (x=11..14)
+  scene.add(box(3,  5.5, 0.5, matWall, 19.5, 2.75, 10)); // pier between bay3 & bay4 (x=18..21)
+  scene.add(box(2,  5.5, 0.5, matWall, 26,   2.75, 10)); // right pier x=25..27
+  scene.add(box(0.5, 12, 16, matWall, 27, 6, 2));           // east wall (x=27)
+  scene.add(box(0.5, 12, 16, matWall, -11, 6, 2));          // west wall (x=-11)
+  scene.add(box(38, 0.4, 16, matWall, 8, 12, 2));           // ceiling
+  scene.add(box(38, 0.3, 16, mat.buildingDark, 8, 0.15, 2)); // interior floor
+  // North wall — segmented (door openings at x=1,7,13,19, each 4-unit wide, h=5.5)
+  scene.add(box(38, 6.5, 0.5, matWall, 8, 9.25, -6));      // top strip above all doors
+  scene.add(box(10, 5.5, 0.5, matWall, -6, 2.75, -6));     // left pier x=-11..-1
+  scene.add(box(2,  5.5, 0.5, matWall, 4,  2.75, -6));     // pier between door1 & door2 (x=3..5)
+  scene.add(box(2,  5.5, 0.5, matWall, 10, 2.75, -6));     // pier between door2 & door3 (x=9..11)
+  scene.add(box(2,  5.5, 0.5, matWall, 16, 2.75, -6));     // pier between door3 & door4 (x=15..17)
+  scene.add(box(6,  5.5, 0.5, matWall, 24, 2.75, -6));     // right pier x=21..27
+  scene.add(box(39, 0.6, 17, mat.roof, 8, 12.3, 2));
+  scene.add(box(39, 2, 0.5, mat.metalDark, 8, 13.2, 2));
+  // High-band windows — outside new 0.5-thick wall faces (north: z=-6.4, south: z=10.4)
+  for (let i = -10; i <= 26; i += 4) {
+    scene.add(box(2.5, 3, 0.1, mat.glass, i, 8.5, -6.4));  // north face exterior
+    scene.add(box(2.5, 3, 0.1, mat.glass, i, 8.5, 10.4));  // south face exterior
   }
-  for (let i = 1; i <= 15; i += 5) {
-    scene.add(box(3.5, 4, 0.3, mat.door, i, 2, -6.1));
+  // Outbound dock doors — genuine open frames, no blocking panels
+  for (const dx of [1, 7, 13, 19]) {
+    scene.add(box(0.3, 6.0, 0.35, mat.metalDark, dx - 2.2, 3.0, -6.2)); // left jamb
+    scene.add(box(0.3, 6.0, 0.35, mat.metalDark, dx + 2.2, 3.0, -6.2)); // right jamb
+    scene.add(box(4.6, 0.6, 0.45, mat.door, dx, 5.8, -6.2));             // rolled-up door header
+    scene.add(box(4.9, 0.3, 0.35, mat.metalDark, dx, 6.2, -6.2));        // top frame bar
   }
 
   // RFID Gate Portals
@@ -360,9 +391,10 @@ export function initScene3D(): () => void {
     if (rotY) g.rotation.y = rotY;
     return g;
   }
-  scene.add(createGate(3, 0.1, -8, 0));
-  scene.add(createGate(8, 0.1, -8, 0));
+  scene.add(createGate(1, 0.1, -8, 0));
+  scene.add(createGate(7, 0.1, -8, 0));
   scene.add(createGate(13, 0.1, -8, 0));
+  scene.add(createGate(19, 0.1, -8, 0));   // 4th gate for wider warehouse
   scene.add(createGate(-8, 0.1, 5, Math.PI / 2));
 
   // ============================================
@@ -371,44 +403,51 @@ export function initScene3D(): () => void {
   // back into the dock for inbound receiving — mirrored opposite outbound.
   // ============================================
 
-  // Inbound staging / apron pad south of warehouse
-  scene.add(box(30, 0.25, 12, mat.groundPad, 7, 0.06, 17));
+  // South road extends to warehouse wall — no separate groundPad needed
 
-  // Dock bumper rails at south wall base
-  scene.add(box(22, 0.4, 0.4, mat.metalDark, 8, 0.2, 10.2));
+  // Dock bumper rail — full south face width
+  scene.add(box(38, 0.4, 0.4, mat.metalDark, 8, 0.2, 10.2));
 
-  // Loading dock doors on south face of warehouse (z = 10.15)
-  scene.add(box(4, 4, 0.3, mat.door, 2, 2, 10.15));
-  scene.add(box(4, 4, 0.3, mat.door, 9, 2, 10.15));
-  scene.add(box(4, 4, 0.3, mat.door, 16, 2, 10.15));
-
-  // Dock canopies above each door (rain shelter overhang)
-  scene.add(box(5, 0.2, 3, mat.metalDark, 2, 4.2, 11.5));
-  scene.add(box(5, 0.2, 3, mat.metalDark, 9, 4.2, 11.5));
-  scene.add(box(5, 0.2, 3, mat.metalDark, 16, 4.2, 11.5));
-  scene.add(box(0.15, 2.5, 0.15, mat.metal, 2, 3.0, 13));
-  scene.add(box(0.15, 2.5, 0.15, mat.metal, 9, 3.0, 13));
-  scene.add(box(0.15, 2.5, 0.15, mat.metal, 16, 3.0, 13));
-
-  // ── RFID pallet portal at dock entrance (reads pallets moved into warehouse) ──
-  // Positioned between dock door and apron — pallet-width only, no truck collision
-  scene.add(createGate(9, 0.1, 12, 0));
-
-  // ── RFID truck reader poles (side of truck lane — no collision, reads all tags) ──
-  function createRFIDReaderPole(rx: number, rz: number, facingAngle: number): THREE.Group {
-    const g = new THREE.Group();
-    g.add(cyl(0.12, 0.15, 5, 8, mat.metalDark, 0, 2.5, 0));          // mast
-    g.add(cyl(0.5, 0.55, 0.2, 8, mat.groundPad, 0, 0.1, 0));          // base
-    g.add(box(0.7, 1.4, 0.12, mat.rfidCyan, 0, 4.0, 0.38));           // reader panel
-    g.add(box(0.5, 0.08, 0.6, mat.rfidCyan, 0, 4.85, 0.15));          // top bar
-    g.add(cyl(0.09, 0.09, 0.22, 8, mat.rfidGreen, 0, 5.1, 0));        // LED beacon
-    g.position.set(rx, 0, rz);
-    g.rotation.y = facingAngle;
-    return g;
+  // Loading dock doors — 4 bays, shown OPEN
+  // Dark interior plane simulates depth through open opening (avoids needing CSG holes)
+  // Inbound dock bays — open frames only (no blocking panels; bays are truly hollow)
+  for (const dx of [2, 9, 16, 23]) {
+    scene.add(box(0.3, 6.0, 0.35, mat.metalDark, dx - 2.2, 3.0, 10.2));  // left jamb
+    scene.add(box(0.3, 6.0, 0.35, mat.metalDark, dx + 2.2, 3.0, 10.2));  // right jamb
+    scene.add(box(4.6, 0.6, 0.45, mat.door, dx, 5.8, 10.2));              // rolled-up door header
+    scene.add(box(4.9, 0.3, 0.35, mat.metalDark, dx, 6.2, 10.2));         // top frame bar
   }
-  // Two poles flanking the truck approach lane at z=18
-  scene.add(createRFIDReaderPole(-1.5, 18, 0));        // left side of lane
-  scene.add(createRFIDReaderPole(16, 18, Math.PI));    // right side of lane
+
+  // Dock canopies — cantilever design (no front columns in truck lane)
+  for (const dx of [2, 9, 16, 23]) {
+    scene.add(box(5.5, 0.28, 5.5, mat.metalDark, dx, 6.4, 12.8)); // canopy roof
+    scene.add(box(0.22, 2.0, 0.22, mat.metal, dx - 2, 5.5, 10.3)); // left wall bracket
+    scene.add(box(0.22, 2.0, 0.22, mat.metal, dx + 2, 5.5, 10.3)); // right wall bracket
+    scene.add(box(5.5, 0.12, 0.18, mat.metal, dx, 6.25, 10.4));   // horizontal bracket beam
+  }
+
+  // ── Inbound dock conveyor — N-S belt from dock door to truck parking zone ──
+  // Truck parks at z=18, dock wall at z=10; conveyor bridges the gap at dock bay x=9
+  scene.add(box(2, 0.3, 7.0, mat.conveyor, 9, 1.2, 14.0));      // belt frame (z=10.5→17.5)
+  scene.add(box(1.6, 0.08, 6.5, mat.belt, 9, 1.38, 14.0));     // belt surface
+  for (let iz = 11.5; iz <= 16.5; iz += 2) {
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, 8.1, 0.6, iz)); // left leg
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, 9.9, 0.6, iz)); // right leg
+  }
+  // Crates on conveyor — hidden until truck arrives (shown by scroll-driven logic)
+  const dockCratesGroup = new THREE.Group();
+  dockCratesGroup.add(box(1.2, 1.0, 1.0, mat.crate, 9, 2.0, 16.5));
+  dockCratesGroup.add(box(0.5, 0.3, 0.04, mat.crateTag, 9, 2.2, 16.0));
+  dockCratesGroup.add(box(1.0, 0.8, 1.0, mat.crate, 9, 1.9, 13.5));
+  dockCratesGroup.add(box(1.2, 1.0, 1.0, mat.crate, 9, 2.0, 11.5));
+  dockCratesGroup.visible = false;
+  scene.add(dockCratesGroup);
+
+  // RFID pallet portal moved off road — small reader post beside road near trees
+  scene.add(box(0.2, 3.0, 0.2, mat.metalDark, -2, 1.5, 25));  // post near tree x=0,z=27
+  scene.add(box(0.8, 0.3, 0.4, mat.door, -2, 3.1, 25));        // reader head
+
+  // Truck lane clear — no obstructions
 
   // Freight crates staged at inbound receiving bay
   scene.add(box(1.5, 1.0, 1.2, mat.crate, 18, 0.9, 15));
@@ -419,8 +458,11 @@ export function initScene3D(): () => void {
   scene.add(box(0.5, 0.3, 0.04, mat.crateTag, -1, 0.95, 14.35));
   scene.add(box(1.3, 0.9, 1.1, mat.crate, -2.5, 0.8, 16.5));
 
-  // Inbound dock tower (antenna + RFID reader mast)
-  scene.add(createTower(-3, 22, 9));
+  // Street lamps — roadside on grass edge (z=27), arm faces road (rotY=PI/2)
+  scene.add(createStreetLamp(-20, 27, Math.PI / 2));
+  scene.add(createStreetLamp(-5,  27, Math.PI / 2));
+  scene.add(createStreetLamp(13,  27, Math.PI / 2));
+  scene.add(createStreetLamp(28,  27, Math.PI / 2));
 
   // Server Room
   scene.add(box(10, 6, 8, mat.buildingDark, -20, 3, -5));
@@ -440,37 +482,63 @@ export function initScene3D(): () => void {
   dish.rotation.x = -0.4;
   scene.add(dish);
 
-  // Conveyor Belt
-  scene.add(box(20, 0.3, 2, mat.conveyor, -5, 1.2, 5));
-  scene.add(box(19, 0.08, 1.6, mat.belt, -5, 1.38, 5));
-  for (let i = -13; i <= 3; i += 4) {
-    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 4.2));
-    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 5.8));
+  // Conveyor Belt — inside warehouse near south dock wall (x:2..22, z:8)
+  scene.add(box(20, 0.3, 2, mat.conveyor, 12, 1.2, 8));
+  scene.add(box(19, 0.08, 1.6, mat.belt, 12, 1.38, 8));
+  for (let i = 4; i <= 20; i += 4) {
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 7.2));
+    scene.add(box(0.3, 1.2, 0.3, mat.metalDark, i, 0.6, 8.8));
   }
-  [-12, -8, -4, 0, 3].forEach((bx) => {
-    scene.add(box(1.2, 1, 1, mat.crate, bx, 2, 5));
-    scene.add(box(0.5, 0.3, 0.04, mat.crateTag, bx, 2.2, 4.46));
+  [4, 8, 12, 16, 20].forEach((bx) => {
+    scene.add(box(1.2, 1, 1, mat.crate, bx, 2, 8));
+    scene.add(box(0.5, 0.3, 0.04, mat.crateTag, bx, 2.2, 7.46));
   });
 
-  // Pallet Racks
+  // Pallet Racks — 3 columns fully inside wider warehouse (x: -11 to 27)
   function createRack(rx: number, rz: number): THREE.Group {
     const g = new THREE.Group();
-    g.add(box(0.15, 5, 0.15, mat.metalDark, -1.5, 2.5, 0));
-    g.add(box(0.15, 5, 0.15, mat.metalDark, 1.5, 2.5, 0));
-    for (let i = 1; i <= 4; i += 1.5) g.add(box(3.2, 0.08, 1.2, mat.metal, 0, i, 0));
-    for (let i = 1.2; i <= 3.5; i += 1.5) {
-      g.add(box(1.2, 0.8, 0.8, mat.crate, -0.5, i + 0.4, 0));
-      g.add(box(1, 0.6, 0.8, mat.crate, 0.8, i + 0.3, 0));
+    g.add(box(0.18, 6, 0.18, mat.metalDark, -1.5, 3, 0));   // left upright
+    g.add(box(0.18, 6, 0.18, mat.metalDark, 1.5, 3, 0));    // right upright
+    for (let i = 1; i <= 5.5; i += 1.5) g.add(box(3.4, 0.1, 1.3, mat.metal, 0, i, 0));
+    for (let i = 1.2; i <= 5; i += 1.5) {
+      g.add(box(1.3, 0.9, 0.9, mat.crate, -0.5, i + 0.45, 0));
+      g.add(box(1.1, 0.7, 0.9, mat.crate, 0.9, i + 0.35, 0));
     }
     g.position.set(rx, 0, rz);
     return g;
   }
-  for (let z = -2; z <= 8; z += 4) {
+  // Left column (x=3, poles 1.5/4.5 — well inside x=-11..27)
+  // Middle column (x=13, poles 11.5/14.5)
+  // Right column (x=22, poles 20.5/23.5 — inside x=27)
+  for (let z = -4; z <= 5; z += 3) {   // stop at z=5 — gap before conveyor at z=8
     scene.add(createRack(3, z));
-    scene.add(createRack(18, z));
+    scene.add(createRack(13, z));
+    scene.add(createRack(22, z));
   }
 
   // Antenna Towers
+  function createStreetLamp(tx: number, tz: number, rotY = 0): THREE.Group {
+    const g = new THREE.Group();
+    // Pole
+    g.add(cyl(0.1, 0.14, 6, 8, mat.metalDark, 0, 3, 0));
+    // Base
+    g.add(cyl(0.35, 0.45, 0.25, 8, mat.metalDark, 0, 0.12, 0));
+    // Arm (horizontal bracket pointing in local +x)
+    g.add(box(1.6, 0.1, 0.1, mat.metalDark, 0.8, 6.1, 0));
+    // Lamp head
+    g.add(box(0.75, 0.25, 0.55, mat.metalDark, 1.6, 5.9, 0));
+    // Lamp glass (warm yellow)
+    const lampGlass = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.12, 0.38),
+      new THREE.MeshStandardMaterial({ color: 0xffe580, emissive: 0xffcc44, emissiveIntensity: 1.2, transparent: true, opacity: 0.9 })
+    );
+    lampGlass.position.set(1.6, 5.82, 0);
+    g.add(lampGlass);
+    g.position.set(tx, 0, tz);
+    g.rotation.y = rotY;
+    return g;
+  }
+
   function createTower(tx: number, tz: number, h: number): THREE.Group {
     const g = new THREE.Group();
     g.add(cyl(0.12, 0.18, h, 8, mat.metal, 0, h / 2, 0));
@@ -488,8 +556,7 @@ export function initScene3D(): () => void {
     return g;
   }
   scene.add(createTower(25, -18, 12));
-  scene.add(createTower(-25, 20, 10));
-  scene.add(createTower(25, 20, 11));
+  // (removed road-center lamps — now all on roadside above)
 
   // Inbound truck material variant (green cab for visual distinction)
   const matInboundCab = new THREE.MeshStandardMaterial({ color: 0x3a6a4a, roughness: 0.6 });
@@ -572,6 +639,20 @@ export function initScene3D(): () => void {
     g.add(box(1.3, 2.9, 0.1, mat.metalDark, -0.72, 2.15, 7.55));
     g.add(box(1.3, 2.9, 0.1, mat.metalDark,  0.72, 2.15, 7.55));
     g.add(box(0.06, 2.6, 0.22, mat.metal, 0, 2.15, 7.65));  // centre door seal
+
+    // === CARGO INSIDE CONTAINER ===
+    // Pallets stacked at rear of container (local z ≈ 4..7, visible when rear door opens)
+    g.add(box(1.1, 0.15, 1.0, mat.metalDark, -0.5, 0.85, 5.5));  // pallet board
+    g.add(box(1.1, 0.15, 1.0, mat.metalDark,  0.5, 0.85, 5.5));
+    g.add(box(1.0, 0.9,  0.9, mat.crate, -0.5, 1.5, 5.5));
+    g.add(box(1.0, 0.9,  0.9, mat.crate,  0.5, 1.5, 5.5));
+    g.add(box(1.0, 0.9,  0.9, mat.crate, -0.5, 2.4, 5.5));
+    g.add(box(0.5, 0.3, 0.04, mat.crateTag, -0.5, 1.55, 5.07));  // RFID tag sticker
+    g.add(box(0.5, 0.3, 0.04, mat.crateTag,  0.5, 1.55, 5.07));
+    g.add(box(1.1, 0.15, 1.0, mat.metalDark, -0.5, 0.85, 3.8));
+    g.add(box(1.0, 0.9,  0.9, mat.crate, -0.5, 1.5, 3.8));
+    g.add(box(1.0, 0.9,  0.9, mat.crate,  0.5, 0.85, 3.8));
+    g.add(box(1.1, 0.15, 1.0, mat.metalDark,  0.5, 0.15, 3.8));
 
     // === WHEELS ===
     // Front steer axle (2 wheels)
@@ -676,17 +757,6 @@ export function initScene3D(): () => void {
   scene.add(box(3, 3, 3, mat.building, -25, 1.5, -12));
   scene.add(box(3.5, 0.3, 3.5, mat.roof, -25, 3.15, -12));
   scene.add(box(2, 1.5, 0.1, mat.glass, -25, 2, -13.55));
-
-  // Solar Panels
-  for (let i = 0; i < 4; i++) {
-    const g = new THREE.Group();
-    const p = box(3, 0.08, 2, mat.solar, 0, 1.5, 0);
-    p.rotation.x = -0.3;
-    g.add(p);
-    g.add(cyl(0.08, 0.08, 1.5, 6, mat.metalDark, 0, 0.75, 0));
-    g.position.set(5 + i * 4, 0, 16);
-    scene.add(g);
-  }
 
   // Trees
   function createTree(tx: number, tz: number, s: number): THREE.Group {
@@ -807,8 +877,9 @@ export function initScene3D(): () => void {
   addWave(13, 3, -8);
   addWave(-8, 3, 5);
   addWave(8, 3, -80); // distributor gate
-  // Inbound — pallet portal gate at z=12
-  addWave(9, 3, 12);
+  // Inbound — wave at dock entrance
+  addWave(1, 3, -8);   // outbound gate x=1
+  addWave(19, 3, -8);  // outbound gate x=19
 
   // --- Radar ring (picking) ---
   const radarRing = new THREE.Mesh(
@@ -936,7 +1007,13 @@ export function initScene3D(): () => void {
     // Sync scroll-driven state every frame — more reliable than rAF-on-scroll
     updateProgressFromScroll();
     const t = clock.getElapsedTime();
-    const p = journeyProgress;
+
+    // Smooth the journey progress: lerp at ~6% per frame → ~1s cinematic ease-in
+    // Clamp tiny residuals to avoid eternal micro-updates
+    const lerpFactor = 0.055;
+    smoothedProgress += (journeyProgress - smoothedProgress) * lerpFactor;
+    if (Math.abs(journeyProgress - smoothedProgress) < 0.0002) smoothedProgress = journeyProgress;
+    const p = smoothedProgress;
 
     // --- Hero pallet position ---
     const hero = heroAt(p);
@@ -953,39 +1030,32 @@ export function initScene3D(): () => void {
     else truckZ = WAYPOINTS[5].z; // parked at distributor
     shipmentTruck.position.set(8, 0, truckZ);
 
-    // --- Inbound truck: multi-phase animation (approach → back-in → dock → leave) ---
-    // Total cycle: 26 s. Truck starts far-west, drives east to dock, docks, then leaves east.
-    const INBOUND_CYCLE = 26;
-    const iT = t % INBOUND_CYCLE; // time within current cycle
+    // --- Inbound truck: scroll-driven in Stage 0 ---
+    // Stage 0 = p in [0, 1/STAGE_COUNT]. s0 = 0..1 within that stage.
+    {
+      const ss = (v: number) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+      const STAGE_0_END = 1 / STAGE_COUNT;
+      const s0 = Math.max(0, Math.min(1, p / STAGE_0_END));
 
-    if (iT < 8) {
-      // Phase 1 (0–8s): Drive east along z=18 from x=-35 to x=7
-      const f = iT / 8;
-      inboundTruckMover.position.x = -35 + f * 42; // -35 → 7
-      inboundTruckMover.position.z = 18;
-      inboundTruckMover.rotation.y = Math.PI / 2;
-    } else if (iT < 10.5) {
-      // Phase 2 (8–10.5s): Back in — z moves 18→15, rotation turns PI/2→PI
-      const f = (iT - 8) / 2.5;
-      inboundTruckMover.position.x = 7;
-      inboundTruckMover.position.z = 18 - f * 3; // 18 → 15
-      inboundTruckMover.rotation.y = Math.PI / 2 + f * (Math.PI / 2); // PI/2 → PI
-    } else if (iT < 16) {
-      // Phase 3 (10.5–16s): Docked — truck stationary for unloading
-      inboundTruckMover.position.x = 7;
-      inboundTruckMover.position.z = 15;
-      inboundTruckMover.rotation.y = Math.PI;
-    } else if (iT < 18.5) {
-      // Phase 4 (16–18.5s): Pull forward — z 15→18, rotation PI→PI/2
-      const f = (iT - 16) / 2.5;
-      inboundTruckMover.position.x = 7;
-      inboundTruckMover.position.z = 15 + f * 3; // 15 → 18
-      inboundTruckMover.rotation.y = Math.PI - f * (Math.PI / 2); // PI → PI/2
-    } else {
-      // Phase 5 (18.5–26s): Exit east off-screen
-      const f = (iT - 18.5) / 7.5;
-      inboundTruckMover.position.x = 7 + f * 45; // 7 → 52 (off-screen)
-      inboundTruckMover.position.z = 18;
+      if (p <= STAGE_0_END) {
+        // Stage 0: truck approaches (s0=0..0.6) then parks (s0=0.6..1)
+        const PARK_THRESHOLD = 0.60;
+        if (s0 < PARK_THRESHOLD) {
+          inboundTruckMover.position.x = -35 + ss(s0 / PARK_THRESHOLD) * 40; // -35 → 5
+          dockCratesGroup.visible = false;
+        } else {
+          inboundTruckMover.position.x = 5;
+          // Crates fade in smoothly a beat after truck fully stops
+          dockCratesGroup.visible = s0 > PARK_THRESHOLD + 0.08;
+        }
+        inboundTruckMover.position.z = 20;
+      } else {
+        // Past stage 0: truck exits east, hide crates
+        const exitT = ss(Math.min((p - STAGE_0_END) / (STAGE_0_END * 0.5), 1));
+        inboundTruckMover.position.x = 5 + exitT * 60;
+        inboundTruckMover.position.z = 20;
+        dockCratesGroup.visible = false;
+      }
       inboundTruckMover.rotation.y = Math.PI / 2;
     }
 
