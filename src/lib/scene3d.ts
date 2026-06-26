@@ -1186,6 +1186,28 @@ export function initScene3D(): () => void {
   // Prime the overlay with the first stage.
   setStage(0);
 
+  // ── Debug helper: instantly teleport to a journey stage (0-5) without lerp lag ──
+  // Also scrolls the page to the matching position so updateProgressFromScroll
+  // keeps journeyProgress pinned there each frame.
+  // Usage in browser console: window.__rfidJump(2)
+  (window as any).__rfidJump = (stage: number) => {
+    const s = Math.max(0, Math.min(5, stage));
+    const target = (s + 0.5) / STAGE_COUNT;
+    journeyProgress = target;
+    smoothedProgress = target;
+    // Compute the scroll position that yields this jp, then pin the page there.
+    const immersive = document.getElementById('immersive');
+    if (immersive) {
+      const vh = window.innerHeight;
+      const denom = immersive.offsetHeight - vh;
+      const immersiveTop = window.scrollY + immersive.getBoundingClientRect().top;
+      const targetScroll = immersiveTop + target * denom;
+      window.scrollTo({ top: targetScroll, behavior: 'instant' });
+    }
+    // Signal the animate loop to snap camera on the next frame (bypass lerp once)
+    (window as any).__rfidCamSnap = true;
+  };
+
   function animate() {
     rafId = requestAnimationFrame(animate);
     // Sync scroll-driven state every frame — more reliable than rAF-on-scroll
@@ -1305,6 +1327,15 @@ export function initScene3D(): () => void {
       // s0c >= BLEND_END: targetCamPos/targetLookAt sudah di-set ke hero di atas — tidak diubah lagi
     }
 
+    // ── Stage 1 override: kamera di dalam gudang, mengikuti forklift putaway ──
+    // Hero bergerak dari inbound gate (z=11) ke rak kanan (x=22, z=2).
+    // Kamera dari sisi kiri (barat), melihat ke timur arah rak.
+    // After 2×: actual cam = (hero.x-6, hero.y+4, hero.z-2) — selalu dalam bounds gudang.
+    if (stageIndexAt(p) === 1) {
+      targetLookAt.set(hero.x, hero.y + 1, hero.z);
+      targetCamPos.set(hero.x - 3, hero.y + 2.5, hero.z - 1);
+    }
+
     // ── Stage 2 override: kamera ikut worker di lorong (x=5.5) ──
     // IMPORTANT: orbitZoom=2.0 doubles the camera-to-lookAt vector.
     // Set targetCamPos at HALF desired distance so post-zoom cam stays inside warehouse (z=-6..10).
@@ -1329,6 +1360,16 @@ export function initScene3D(): () => void {
       }
     }
 
+    // ── Stage 3 override: kamera di dalam gudang, menonton palet keluar outbound gate ──
+    // Hero bergerak dari staging (z=-5) ke truck dock (z=-15), melewati outbound gate (z≈-8).
+    // Kamera tetap di dalam gudang (z>=-5), melihat palet keluar.
+    // After 2×: actual cam = (14, 5, hero.z+5) clamped — kamera selalu di dalam.
+    if (stageIndexAt(p) === 3) {
+      const gateZ = Math.max(-5.5, hero.z + 2.5);
+      targetLookAt.set(8, 2, hero.z);
+      targetCamPos.set(11, 3.5, gateZ);
+    }
+
     // Apply interactive orbit + zoom (always run — default orbitZoom=2.0 keeps camera further back)
     {
       const toCamera = new THREE.Vector3().subVectors(targetCamPos, targetLookAt);
@@ -1345,8 +1386,11 @@ export function initScene3D(): () => void {
     targetCamPos.add(panOffset);
     targetLookAt.add(panOffset);
 
-    camera.position.lerp(targetCamPos, 0.028);
-    currentLookAt.lerp(targetLookAt, 0.038);
+    const camLerpFactor = (window as any).__rfidCamSnap ? 1 : 0.028;
+    const lookLerpFactor = (window as any).__rfidCamSnap ? 1 : 0.038;
+    if ((window as any).__rfidCamSnap) (window as any).__rfidCamSnap = false;
+    camera.position.lerp(targetCamPos, camLerpFactor);
+    currentLookAt.lerp(targetLookAt, lookLerpFactor);
     camera.lookAt(currentLookAt);
 
     // --- Stage bookkeeping ---

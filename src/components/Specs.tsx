@@ -4,43 +4,42 @@ export default function Specs() {
       <div className="specs__content">
         <div className="specs__left">
           <span className="badge badge--cta" style={{ marginBottom: '2rem', display: 'inline-block' }}>
-            Technical Specifications
+            Spesifikasi Teknis
           </span>
           <h2 className="mid-heading" style={{ marginBottom: '2rem' }}>
-            Built for Enterprise<br />Performance
+            Parameter Hardware<br />yang Digunakan
           </h2>
           <p className="paragraph--sm" style={{ color: 'rgba(255,255,255,0.6)' }}>
-            Our RFID platform is engineered to handle the most
-            demanding enterprise environments with reliability,
-            speed, and precision.
+            Spesifikasi reader dan tag UHF yang menjadi dasar implementasi
+            ini — cocok untuk lingkungan gudang dengan rak padat dan mobilitas tinggi.
           </p>
         </div>
 
         <div className="specs__table">
-          <h3 className="specs__table-title">Platform Capabilities</h3>
+          <h3 className="specs__table-title">UHF RFID Reader</h3>
           <div className="specs__row">
-            <span className="specs__row-label">Frequency Range</span>
+            <span className="specs__row-label">Frekuensi</span>
             <span className="specs__row-value">860–960 MHz (UHF)</span>
           </div>
           <div className="specs__row">
-            <span className="specs__row-label">Maximum Read Range</span>
-            <span className="specs__row-value">Up to 15 meters</span>
+            <span className="specs__row-label">Jangkauan Baca</span>
+            <span className="specs__row-value">Hingga 15 meter</span>
           </div>
           <div className="specs__row">
-            <span className="specs__row-label">Tag Read Speed</span>
-            <span className="specs__row-value">1,000+ tags/second</span>
+            <span className="specs__row-label">Kecepatan Baca Tag</span>
+            <span className="specs__row-value">1.000+ tag/detik</span>
           </div>
           <div className="specs__row">
-            <span className="specs__row-label">Read Accuracy</span>
+            <span className="specs__row-label">Akurasi Baca</span>
             <span className="specs__row-value">99.9%</span>
           </div>
           <div className="specs__row">
-            <span className="specs__row-label">System Uptime SLA</span>
-            <span className="specs__row-value">99.99%</span>
+            <span className="specs__row-label">Protokol</span>
+            <span className="specs__row-value">EPC Gen2 / ISO 18000-6C</span>
           </div>
           <div className="specs__row">
-            <span className="specs__row-label">API Response Time</span>
-            <span className="specs__row-value">&lt; 10ms</span>
+            <span className="specs__row-label">Integrasi API</span>
+            <span className="specs__row-value">REST / MQTT &lt;10ms latency</span>
           </div>
         </div>
       </div>

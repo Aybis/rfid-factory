@@ -5,19 +5,19 @@ export default function Hero() {
       <div className="hero__bg-glow hero__bg-glow--green"></div>
 
       <div className="hero__badge">
-        <span className="badge badge--accent">Platform RFID Enterprise</span>
+        <span className="badge badge--accent">Implementasi RFID Gudang</span>
       </div>
 
       <h1 className="hero__title">
         <span className="line"><span className="line-inner">Digitalisasi</span></span>
-        <span className="line"><span className="line-inner">Gudang <span className="accent">Modern</span></span></span>
+        <span className="line"><span className="line-inner">Gudang <span className="accent">Berbasis RFID</span></span></span>
         <span className="line"><span className="line-inner">End-to-End</span></span>
       </h1>
 
       <p className="hero__subtitle">
-        Konversi seluruh operasi gudang manual menjadi alur otomatis berbasis RFID —
-        dari penerimaan, penyimpanan, picking, hingga pengiriman ke distributor.
-        Real-time, akurat, dan bebas kertas.
+        Begini cara kerja RFID mengotomasi seluruh alur operasi gudang —
+        dari truk masuk di loading dock, penyimpanan ke rak, picking pesanan,
+        hingga palet tiba di distributor. Real-time, akurat, tanpa kertas.
       </p>
 
       <div className="hero__stats">
@@ -38,9 +38,9 @@ export default function Hero() {
       </div>
 
       <div className="hero__cta">
-        <button className="btn-primary" id="hero-cta">Mulai Konsultasi</button>
+        <button className="btn-primary" id="hero-cta">Lihat Implementasinya</button>
         <button className="btn-ghost" id="hero-explore">
-          <span className="btn-ghost__inner">Lihat Kedua Gudang</span>
+          <span className="btn-ghost__inner">Jelajahi Alur Gudang</span>
         </button>
       </div>
 

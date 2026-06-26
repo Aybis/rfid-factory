@@ -10,7 +10,7 @@ export default function Nav() {
             <path d="M3.5 10a1 1 0 011 1v2a1 1 0 01-2 0v-2a1 1 0 011-1zM20.5 10a1 1 0 011 1v2a1 1 0 01-2 0v-2a1 1 0 011-1z" />
           </svg>
         </div>
-        <span className="nav__logo-text">RFID Solutions</span>
+        <span className="nav__logo-text">RFID Warehouse</span>
       </div>
 
       <div className="nav__right">
@@ -36,21 +36,18 @@ export default function Nav() {
                 <a href="#hero">Beranda</a>
               </div>
               <div className="nav__menu-link" data-target="immersive">
-                <a href="#immersive">Alur Perjalanan</a>
+                <a href="#immersive">Alur Implementasi</a>
               </div>
               <div className="nav__menu-link" data-target="services">
-                <a href="#services">Industri</a>
+                <a href="#services">Komponen Sistem</a>
               </div>
               <div className="nav__menu-link" data-target="specs">
-                <a href="#specs">Spesifikasi</a>
-              </div>
-              <div className="nav__menu-link" data-target="contact">
-                <a href="#contact">Kontak</a>
+                <a href="#specs">Spesifikasi Teknis</a>
               </div>
             </div>
             <div className="nav__menu-cta">
               <button className="nav__menu-cta-btn" id="menu-cta-btn">
-                <span>Minta Konsultasi</span>
+                <span>Lihat Dokumentasi</span>
               </button>
             </div>
           </div>

@@ -2,16 +2,18 @@ export default function Contact() {
   return (
     <section className="contact" id="contact">
       <div className="contact__row">
-        <div className="contact__label">General Inquiries</div>
-        <a href="mailto:hello@rfidsolutions.com" className="contact__link">hello@rfidsolutions.com</a>
+        <div className="contact__label">Tentang Proyek Ini</div>
+        <span className="contact__link" style={{ cursor: 'default' }}>
+          Simulasi implementasi RFID di gudang — dibangun sebagai referensi teknis
+        </span>
       </div>
       <div className="contact__row">
-        <div className="contact__label">Sales &amp; Partnerships</div>
-        <a href="tel:+18005551234" className="contact__link">+1 (800) 555-1234</a>
+        <div className="contact__label">Diskusi &amp; Kolaborasi</div>
+        <a href="mailto:muchtara2m@gmail.com" className="contact__link">muchtara2m@gmail.com</a>
       </div>
       <div className="contact__row">
-        <div className="contact__label">Headquarters</div>
-        <span className="contact__link" style={{ cursor: 'default' }}>San Francisco, California</span>
+        <div className="contact__label">Teknologi</div>
+        <span className="contact__link" style={{ cursor: 'default' }}>Three.js · TypeScript · Vite · React</span>
       </div>
     </section>
   );

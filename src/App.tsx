@@ -8,7 +8,6 @@ import Immersive from './components/Immersive';
 import Services from './components/Services';
 import Specs from './components/Specs';
 import CtaSection from './components/CtaSection';
-import Contact from './components/Contact';
 import Footer from './components/Footer';
 import { initScrollEngine } from './lib/scrollEngine';
 import { initOverlay } from './lib/overlay';
@@ -41,7 +40,6 @@ export default function App() {
       <Services />
       <Specs />
       <CtaSection />
-      <Contact />
       <Footer />
     </>
   );
